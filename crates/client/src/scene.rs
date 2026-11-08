@@ -32,6 +32,26 @@ pub const C_HARVEST: [f32; 4] = [0.75, 0.45, 0.95, 0.9];
 pub const C_STAIRS: [f32; 4] = [0.3, 0.85, 0.95, 0.6];
 pub const C_ZONE: [f32; 4] = [0.95, 0.82, 0.35, 0.22];
 pub const C_SELECT: [f32; 4] = [0.95, 0.75, 0.3, 1.0];
+pub const C_ROOF: [f32; 4] = [0.55, 0.75, 1.0, 0.8];
+pub const C_NOROOF: [f32; 4] = [1.0, 0.45, 0.4, 0.8];
+
+/// Environment overlay shown over the floor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overlay {
+    None,
+    Field(sim::defs::EnvFieldId),
+    Rooms,
+}
+
+/// Blue → cyan → green → yellow → red.
+fn heat(t: f32) -> [f32; 3] {
+    let t = t.clamp(0.0, 1.0) * 4.0;
+    let stops = [[0.2, 0.35, 1.0], [0.2, 0.85, 0.95], [0.3, 0.9, 0.35], [0.95, 0.9, 0.25], [0.95, 0.25, 0.2]];
+    let i = (t.floor() as usize).min(3);
+    let f = t - i as f32;
+    let (a, b) = (stops[i], stops[i + 1]);
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preview {
@@ -71,6 +91,9 @@ pub struct FrameParams<'a> {
     pub preview: &'a [(P3, Preview)],
     pub preview_sprite: Option<(&'a str, u8)>,
     pub time: f32,
+    pub overlay: Overlay,
+    /// Draw all walls cut down (otherwise only walls on the view level).
+    pub walls_down: bool,
 }
 
 fn ramp_sprite(defs: &Defs, map: &Map, p: P3) -> String {
@@ -210,6 +233,8 @@ impl Scene {
                             Designation::Chop => Some(C_CHOP),
                             Designation::Harvest => Some(C_HARVEST),
                             Designation::DigStairs => Some(C_STAIRS),
+                            Designation::BuildRoof => Some(C_ROOF),
+                            Designation::RemoveRoof => Some(C_NOROOF),
                             _ => None,
                         };
                         if let Some(col) = dc {
@@ -283,7 +308,11 @@ impl Scene {
             let color = if blue { [0.45 * d, 0.7 * d, 1.0 * d, 0.55] } else { [d, d, d, 1.0] };
             let dir = (rot as u32 + proj.angle as u32) % 4;
             let lit = if blue { None } else { Some(Lit::at(&map, p, 0.5)) };
-            Self::put(&mut dynm, atlas, atlas.get(&bd.sprite), variant_of(p), dir, 0, proj.cell_center(p.x, p.y, p.z), color, key(depth_of(p), p.z, 3), lit);
+            // Walls and doors on the viewed level are drawn cut down so rooms are visible.
+            let cut = matches!(bd.kind, sim::defs::BuildingKind::Wall | sim::defs::BuildingKind::Door) && (p.z == view_z || fp.walls_down);
+            let low = cut.then(|| atlas.get(&format!("{}_low", bd.sprite))).flatten();
+            let set = low.or_else(|| atlas.get(&bd.sprite));
+            Self::put(&mut dynm, atlas, set, variant_of(p), dir, 0, proj.cell_center(p.x, p.y, p.z), color, key(depth_of(p), p.z, 3), lit);
             if !blue && let Some(l) = &bd.light {
                 let wobble = 0.5 + 0.5 * (fp.time * 9.0 + p.x as f32 * 1.7).sin() * (fp.time * 5.3 + p.y as f32).cos();
                 let flick = 1.0 - l.flicker * wobble;
@@ -389,7 +418,7 @@ impl Scene {
             let work_at = work_target.and_then(|t| {
                 use sim::jobs::WorkTarget::*;
                 let cell = match t {
-                    Mine(c) | DigStairs(c) => Some(c),
+                    Mine(c) | DigStairs(c) | Roof(c, _) | Clean(c) => Some(c),
                     Chop(x) | Harvest(x) | Build(x) | Craft { bench: x, .. } => pos.get(x).map(|p| p.0),
                 };
                 cell.map(|c| {
@@ -422,6 +451,7 @@ impl Scene {
                 Self::put(&mut dynm, atlas, Some(set), 0, dir, 0, proj.cell_center(p.x, p.y, p.z), [0.6, 1.0, 0.7, 0.6], key(depth_of(*p), p.z, 3) + 5, None);
             }
         }
+        self.overlay_and_decals(sim, atlas, &proj, fp, &map, &mut dynm);
         drop(map);
 
         // Cull + sort.
@@ -436,6 +466,71 @@ impl Scene {
         all.sort_by_key(|s| s.key);
         self.sprites_drawn = all.len();
         all.into_iter().map(|s| s.quad).collect()
+    }
+}
+
+impl Scene {
+    /// Filth decals on dirty floors and the optional environment overlay.
+    fn overlay_and_decals(&self, sim: &Sim, atlas: &Atlas, proj: &Proj, fp: &FrameParams, map: &Map, out: &mut Vec<Spr>) {
+        let defs = sim.defs();
+        let env = sim.world.res::<sim::env::Env>();
+        let rooms = sim.world.res::<sim::env::Rooms>();
+        let filth = defs.core.field_filth;
+        let view_z = fp.cam.view_z.min(map.d - 1);
+        let (ox, oy) = fp.cam.offset(fp.screen);
+        let zoom = fp.cam.zoom as f32;
+        let on_screen = |at: (f32, f32)| {
+            let sx = at.0 * zoom + ox;
+            let sy = at.1 * zoom + oy;
+            sx > -64.0 && sy > -64.0 && sx < fp.screen.0 as f32 + 64.0 && sy < fp.screen.1 as f32 + 64.0
+        };
+        for y in 0..map.h {
+            for x in 0..map.w {
+                // Top floor cell of this column at or below the view level.
+                let Some(z) = (0..=view_z).rev().find(|&z| {
+                    let p = P3::new(x, y, z);
+                    !map.is_solid(p) && map.is_supported(p)
+                }) else {
+                    continue;
+                };
+                let p = P3::new(x, y, z);
+                let at = proj.cell_center(x, y, z);
+                if !on_screen(at) {
+                    continue;
+                }
+                let i = map.idx(p);
+                let depth = proj.depth(x as f32 + 0.5, y as f32 + 0.5);
+                if let Some(f) = filth {
+                    let v = env.get(f, i);
+                    if v > 0.3 && !atlas.filth.is_empty() {
+                        let r = atlas.filth[(variant_of(p) as usize) % atlas.filth.len()];
+                        let a = (v / 1.5).min(0.85);
+                        out.push(Spr { key: key(depth, z, 1) + 1, quad: make_quad(atlas, r, at, [0.22, 0.17, 0.12, a], Some(Lit::at(map, p, 0.0))) });
+                    }
+                }
+                let col = match fp.overlay {
+                    Overlay::None => continue,
+                    Overlay::Field(f) => {
+                        let fd = &defs.env_fields[f];
+                        let (lo, hi) = fd.overlay.unwrap_or((0.0, 1.0));
+                        let t = (env.get(f, i) - lo) / (hi - lo).max(1e-3);
+                        let c = heat(t);
+                        [c[0], c[1], c[2], 0.42]
+                    }
+                    Overlay::Rooms => match rooms.indoor_room_at(map, p) {
+                        Some(_) => {
+                            let id = rooms.cell_room[i];
+                            let h = hash3(7, id as i32, 0, 0);
+                            let c = heat(((h >> 40) & 0xff) as f32 / 255.0);
+                            [c[0], c[1], c[2], 0.45]
+                        }
+                        None if map.cell(p).roof => [0.6, 0.7, 0.9, 0.3],
+                        None => continue,
+                    },
+                };
+                out.push(Spr { key: key(depth, z, 7), quad: make_quad(atlas, atlas.diamond, at, col, None) });
+            }
+        }
     }
 }
 

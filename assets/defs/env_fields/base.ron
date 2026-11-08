@@ -1,0 +1,40 @@
+// Environment fields. Order matters for Static fields that read other fields
+// (inputs see the values computed earlier in the same update).
+//
+// Dynamic: per-cell state; emitters add to it, it diffuses between open cells
+//   (walls block, doors leak), and relaxes toward the ambient value
+//   (`outdoor_pull` when unroofed, `indoor_pull` when roofed).
+// Static: recomputed each update from `inputs` and emitters.
+[
+    (
+        name: "temperature", label: "Temperature", unit: "C", kind: Dynamic,
+        // mean 12C, +-12 over the seasons, +-5 over the day
+        ambient: Climate(12.0, 12.0, 5.0),
+        diffusion: 0.15, outdoor_pull: 0.25, indoor_pull: 0.02,
+        min: Some(-60.0), max: Some(120.0),
+        overlay: Some((-10.0, 35.0)),
+    ),
+    (
+        name: "filth", label: "Filth", decimals: 1, kind: Dynamic,
+        // Tracked in by feet indoors; outdoors, weather slowly clears it.
+        traffic: 0.03, traffic_indoor_only: true,
+        outdoor_pull: 0.05, ambient: Constant(0.0),
+        min: Some(0.0), max: Some(5.0),
+        impressiveness: -1.0,
+        overlay: Some((0.0, 2.0)),
+    ),
+    (
+        name: "light", label: "Light", decimals: 2, kind: Static,
+        // Building `light` defs add to this automatically.
+        inputs: [(Daylight, 1.0)],
+        min: Some(0.0), max: Some(1.5),
+        overlay: Some((0.0, 1.0)),
+    ),
+    (
+        name: "beauty", label: "Beauty", decimals: 1, kind: Static,
+        inputs: [(Field("filth"), -1.5)],
+        same_room_only: true,
+        impressiveness: 3.0,
+        overlay: Some((-4.0, 4.0)),
+    ),
+]

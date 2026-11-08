@@ -1,0 +1,12 @@
+// Weather: picked by weight, lasts a random number of hours.
+[
+    (name: "clear", label: "Clear", weight: 6.0, hours: (8.0, 30.0)),
+    (name: "overcast", label: "Overcast", weight: 3.0, hours: (6.0, 20.0),
+        ambient: [("temperature", -2.0)], light: 0.75),
+    (name: "rain", label: "Rain", weight: 3.0, hours: (3.0, 12.0),
+        ambient: [("temperature", -4.0)], light: 0.6, visual: Rain),
+    (name: "fog", label: "Fog", weight: 1.5, hours: (3.0, 8.0),
+        ambient: [("temperature", -1.0)], light: 0.75, visual: Fog),
+    (name: "aether_storm", label: "Aether storm", weight: 0.6, hours: (2.0, 6.0),
+        ambient: [("temperature", -3.0)], light: 0.5, visual: AetherStorm),
+]

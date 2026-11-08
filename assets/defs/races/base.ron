@@ -7,6 +7,7 @@
         needs: [(need: "hunger", decay: 1.6), (need: "rest", decay: 1.0), (need: "recreation", decay: 0.8)],
         base_stats: [("learn_rate", 1.25)],
         adult_age: (18, 55),
+        comfort: [("temperature", 8.0, 30.0)],
         appearance: (
             skin: ["#f0c8a0", "#d9a066", "#b07a4a", "#8a5a3a", "#5e3c28"],
             hair: ["#2a2220", "#4a3426", "#7a5230", "#b08a50", "#8a8a88", "#9a3a2a"],
@@ -26,6 +27,7 @@
         skill_bonus: [("botany", 2), ("arcana", 2)],
         quirk_weights: [("claustrophobic", 2.0), ("tunnel_rat", 0.0)],
         adult_age: (60, 400),
+        comfort: [("temperature", 4.0, 32.0)],
         appearance: (
             skin: ["#f2dcc0", "#e8c9a0", "#d8c8b8", "#c8b0a0"],
             hair: ["#e6d9a2", "#f0ece0", "#c8a060", "#5a3a2a", "#a8b8c8"],
@@ -45,6 +47,7 @@
         skill_bonus: [("mining", 3), ("construction", 1), ("crafting", 1)],
         quirk_weights: [("claustrophobic", 0.0), ("tunnel_rat", 2.5)],
         adult_age: (35, 180),
+        comfort: [("temperature", -2.0, 26.0)],
         appearance: (
             skin: ["#e0b090", "#c98a5e", "#a87050", "#8a5a40"],
             hair: ["#a8502a", "#5a3a2a", "#2a2220", "#c8c0b0", "#d08a3a", "#8a8a88"],

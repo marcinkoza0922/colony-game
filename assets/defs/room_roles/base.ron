@@ -1,0 +1,7 @@
+// Room roles: the highest-priority role whose building count is in range wins.
+[
+    (name: "bedroom", label: "Bedroom", buildings: ["bed"], min_count: 1, max_count: Some(1), priority: 10.0),
+    (name: "barracks", label: "Barracks", buildings: ["bed"], min_count: 2, priority: 9.0),
+    (name: "kitchen", label: "Kitchen", buildings: ["campfire"], priority: 5.0),
+    (name: "workshop", label: "Workshop", buildings: ["workbench", "stonecutter"], priority: 4.0),
+]

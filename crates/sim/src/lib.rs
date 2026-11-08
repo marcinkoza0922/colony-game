@@ -4,6 +4,7 @@ pub mod ai;
 pub mod components;
 pub mod debug;
 pub mod defs;
+pub mod env;
 pub mod geom;
 pub mod items;
 pub mod jobs;
@@ -34,7 +35,7 @@ use resources::*;
 use rng::SimRng;
 use stats::StatCache;
 
-const SAVE_MAGIC: &[u8; 8] = b"COLONY02";
+const SAVE_MAGIC: &[u8; 8] = b"COLONY03";
 
 pub struct Sim {
     pub world: World,
@@ -94,13 +95,17 @@ fn save_registry() -> SaveRegistry {
         .resource::<Zones>("zones")
         .resource::<Reservations>("reservations")
         .resource::<GameLog>("log")
-        .resource::<SimMeta>("meta");
+        .resource::<SimMeta>("meta")
+        .resource::<env::Env>("env")
+        .resource::<env::WeatherState>("weather");
     r
 }
 
 fn schedule() -> Schedule {
     let mut s = Schedule::new();
     s.add("clock", pawn_sys::sys_clock)
+        .add("weather", env::sys_weather)
+        .add("env", env::sys_env)
         .add("positions", pawn_sys::sys_positions)
         .add("stats", pawn_sys::sys_stats)
         .add("needs", pawn_sys::sys_needs)
@@ -126,6 +131,9 @@ impl Sim {
         world.insert_resource(Pathfinder::default());
         world.insert_resource(Map::new(1, 1, 1));
         world.insert_resource(SimMeta { seed: 0, start: P3::default() });
+        world.insert_resource(env::Env::default());
+        world.insert_resource(env::Rooms::default());
+        world.insert_resource(env::WeatherState::default());
         Sim { world, schedule: schedule(), registry: save_registry() }
     }
 
@@ -159,6 +167,11 @@ impl Sim {
             }
         }
         jobs::log(w, LogKind::Info, "Your colonists have arrived at the ruins.");
+        // Settle the environment so the first frames show sensible values.
+        env::refresh_rooms(w);
+        for _ in 0..3 {
+            env::update_env(w);
+        }
         sim
     }
 

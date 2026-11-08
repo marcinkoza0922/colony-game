@@ -5,6 +5,7 @@
 //! Debug/testing:
 //!   colony --shot out.png [--size 1600x900] [--ticks N] [--orders] [--angle A]
 //!          [--zoom Z] [--viewz Z] [--select I] [--work] [--build] [--debug] [--focus X,Y]
+//!          [--frames N] [--mouse X,Y] [--weather NAME] [--overlay FIELD|rooms]
 
 mod atlas;
 mod font;
@@ -112,6 +113,26 @@ fn apply_debug_args(game: &mut Game, args: &Args) {
             game.focus(sim::P3::new(v[0], v[1], z));
         }
     }
+    if let Some(name) = args.get("--weather") {
+        let defs = game.sim.defs();
+        match defs.weather.find(&name) {
+            Some(w) => {
+                let mut ws = game.sim.world.res_mut::<sim::env::WeatherState>();
+                ws.current = Some(w);
+                ws.ticks_left = 1_000_000;
+            }
+            None => eprintln!("unknown weather {name}"),
+        }
+    }
+    if let Some(name) = args.get("--overlay") {
+        let defs = game.sim.defs();
+        game.overlay = match (name.as_str(), defs.env_fields.find(&name)) {
+            ("rooms", _) => scene::Overlay::Rooms,
+            (_, Some(f)) => scene::Overlay::Field(f),
+            _ => scene::Overlay::None,
+        };
+    }
+    game.walls_down = args.has("--walls-down");
     game.show_work = args.has("--work");
     game.show_build = args.has("--build");
     game.show_debug = args.has("--debug");

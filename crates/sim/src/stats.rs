@@ -8,6 +8,7 @@ use crate::components::*;
 use crate::defs::*;
 use crate::geom::P3;
 use crate::jobs::JobKind;
+use crate::env::{Env, Rooms, WeatherState};
 use crate::map::Map;
 use crate::resources::{Clock, PawnPositions};
 
@@ -34,6 +35,9 @@ pub struct Ctx<'a> {
     pub defs: &'a Defs,
     pub map: &'a Map,
     pub clock: &'a Clock,
+    pub env: &'a Env,
+    pub rooms: &'a Rooms,
+    pub weather: &'a WeatherState,
     pub others: &'a [(Entity, P3)],
     pub me: Entity,
     pub pos: P3,
@@ -71,10 +75,23 @@ fn count_plants(ctx: &Ctx, r: i32) -> usize {
     n
 }
 
+fn field_here(ctx: &Ctx, f: EnvFieldId) -> f32 {
+    if ctx.map.in_bounds(ctx.pos) { ctx.env.get(f, ctx.map.idx(ctx.pos)) } else { 0.0 }
+}
+
+/// The pawn's enclosed room, if indoors.
+fn room<'a>(ctx: &Ctx<'a>) -> Option<&'a crate::env::Room> {
+    ctx.rooms.indoor_room_at(ctx.map, ctx.pos)
+}
+
+fn comfort(ctx: &Ctx, f: EnvFieldId) -> Option<(f32, f32)> {
+    ctx.defs.races[ctx.race].comfort.iter().find(|(id, _, _)| *id == f).map(|(_, lo, hi)| (*lo, *hi))
+}
+
 pub fn eval(c: &Condition, ctx: &Ctx) -> bool {
     match c {
         Condition::Always => true,
-        Condition::Underground => ctx.map.is_roofed(ctx.pos),
+        Condition::Underground => ctx.map.is_underground(ctx.pos),
         Condition::Outdoors => !ctx.map.is_roofed(ctx.pos),
         Condition::Night => ctx.clock.is_night_shifted(ctx.sleep_shift()),
         Condition::Day => !ctx.clock.is_night_shifted(ctx.sleep_shift()),
@@ -89,6 +106,17 @@ pub fn eval(c: &Condition, ctx: &Ctx) -> bool {
         Condition::Sleeping => ctx.activity == Activity::Sleeping,
         Condition::HasQuirk(q) => ctx.quirks.contains(q),
         Condition::IsRace(r) => ctx.race == *r,
+        Condition::FieldBelow(f, v) => field_here(ctx, *f) < *v,
+        Condition::FieldAbove(f, v) => field_here(ctx, *f) > *v,
+        Condition::RoomFieldBelow(f, v) => room(ctx).is_some_and(|r| r.fields.get(f.index()).is_some_and(|x| x < v)),
+        Condition::RoomFieldAbove(f, v) => room(ctx).is_some_and(|r| r.fields.get(f.index()).is_some_and(|x| x > v)),
+        Condition::TooLow(f) => comfort(ctx, *f).is_some_and(|(lo, _)| field_here(ctx, *f) < lo),
+        Condition::TooHigh(f) => comfort(ctx, *f).is_some_and(|(_, hi)| field_here(ctx, *f) > hi),
+        Condition::Indoors => room(ctx).is_some(),
+        Condition::InRoomRole(role) => room(ctx).is_some_and(|r| r.role == Some(*role)),
+        Condition::ImpressivenessAbove(v) => room(ctx).is_some_and(|r| r.impressiveness > *v),
+        Condition::ImpressivenessBelow(v) => room(ctx).is_some_and(|r| r.impressiveness < *v),
+        Condition::Weather(w) => ctx.weather.current == Some(*w),
         Condition::All(cs) => cs.iter().all(|c| eval(c, ctx)),
         Condition::Any(cs) => cs.iter().any(|c| eval(c, ctx)),
         Condition::Not(c) => !eval(c, ctx),
@@ -159,6 +187,9 @@ pub fn with_ctx<R>(world: &World, pawn: Entity, f: impl FnOnce(&Ctx) -> R) -> Op
     let defs = world.res::<std::rc::Rc<Defs>>().clone();
     let map = world.res::<Map>();
     let clock = world.res::<Clock>();
+    let env = world.res::<Env>();
+    let rooms = world.res::<Rooms>();
+    let weather = world.res::<WeatherState>();
     let others = world.res::<PawnPositions>();
     let pos = world.get::<Position>(pawn)?.0;
     let race = world.get::<Pawn>(pawn)?.race;
@@ -170,6 +201,9 @@ pub fn with_ctx<R>(world: &World, pawn: Entity, f: impl FnOnce(&Ctx) -> R) -> Op
         defs: &defs,
         map: &map,
         clock: &clock,
+        env: &env,
+        rooms: &rooms,
+        weather: &weather,
         others: &others.0,
         me: pawn,
         pos,

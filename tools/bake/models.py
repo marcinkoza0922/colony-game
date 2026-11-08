@@ -292,6 +292,24 @@ def wood_wall(_f, _v):
     box((1.02, 1.02, 0.06), (0, 0, LEVEL - 0.03), "#a07a50")
 
 
+LOW = 0.3  # fraction of a level kept when walls are drawn cut down
+
+
+def low_wall(color, cap="#2a2724"):
+    def build(_f, _v):
+        h = LEVEL * LOW
+        box((1, 1, h), (0, 0, h / 2), color)
+        box((0.9, 0.9, 0.02), (0, 0, h + 0.005), cap)
+    return build
+
+
+def door_low(_f, _v):
+    h = LEVEL * LOW
+    for x in (-0.44, 0.44):
+        box((0.12, 0.2, h), (x, 0, h / 2), "#6b4f33")
+    box((0.76, 0.08, h), (0, 0, h / 2), "#9a7650")
+
+
 def stone_wall(_f, _v):
     box((1, 1, LEVEL), (0, 0, LEVEL / 2), "#8e949c")
     rows = 4
@@ -351,6 +369,14 @@ def stonecutter(_f, _v):
     table(top_color="#8a8a85")
     cyl(0.2, 0.03, (0.12, 0.0, 0.62), "#b0b4b8", verts=12, rot=(0, math.pi / 2, 0))
     box((0.24, 0.2, 0.14), (-0.25, 0.05, 0.57), "#9a9aa0")
+
+
+def torch(_f, _v):
+    cyl(0.1, 0.06, (0, 0, 0.03), "#5a5a5a", verts=8)
+    cyl(0.03, 0.85, (0, 0, 0.45), "#5a4029", verts=6)
+    cyl(0.06, 0.12, (0, 0, 0.88), "#4a4a4a", verts=6)
+    cone(0.07, 0.0, 0.2, (0, 0, 1.02), "#f0a040", verts=5, emit=1.0)
+    cone(0.035, 0.0, 0.12, (0.0, 0.0, 1.0), "#ffe080", verts=4, emit=1.0)
 
 
 def stairs(_f, _v):
@@ -531,6 +557,10 @@ def catalogue():
         dict(name="bld_workbench", canvas="object", build=workbench, rotations=4),
         dict(name="bld_stonecutter", canvas="object", build=stonecutter, rotations=4),
         dict(name="bld_stairs", canvas="object", build=stairs, rotations=4, outline=False),
+        dict(name="bld_torch", canvas="object", build=torch),
+        dict(name="bld_wood_wall_low", canvas="object", build=low_wall("#8b6a45"), outline=False),
+        dict(name="bld_stone_wall_low", canvas="object", build=low_wall("#8e949c"), outline=False),
+        dict(name="bld_door_low", canvas="object", build=door_low, rotations=4),
     ]
     for race in RACES:
         for si, style in enumerate(STYLES[race]):

@@ -439,8 +439,33 @@ until power and maintenance systems exist.
   hazards and illness events. The model is built for combat in M5.
 
 ### 10.5 Environment — generic field system
-The user wants this flexible enough to add new factors later, so environment
-factors are **data-defined fields**, not hard-coded systems:
+**Status: implemented** (`crates/sim/src/env.rs`, `assets/defs/env_fields`,
+`room_roles`, `weather`). Notes on the implementation:
+
+- Fields are `Dynamic` (stateful grid: emitters → diffusion → relax toward
+  ambient; walls block, doors leak 25 %, solid rock is a boundary at the
+  climate mean) or `Static` (recomputed from `inputs` like `Field(filth)` /
+  `Daylight` plus emitters). Updated every 60 ticks.
+- Emitters: `env` lists on building/item/plant defs; building `light` defs feed
+  the `light` field automatically.
+- Changes between updates (foot traffic, cleaning) are queued and applied at
+  the next update, so room aggregates are a pure function of saved state
+  (save → load stays bit-identical).
+- Conditions: `FieldBelow/Above`, `RoomFieldBelow/Above`, `TooLow/TooHigh`
+  (race `comfort` ranges), `Indoors`, `InRoomRole`, `Impressiveness*`,
+  `Weather`. `Underground` now means rock overhead (constructed roofs don't count).
+- Rooms: 4-connected regions per level bounded by rock/walls/doors; indoor if
+  enclosed, fully roofed and ≤ 1200 cells. Roles from building counts
+  (bedroom, barracks, kitchen, workshop). Impressiveness = Σ field weights ×
+  room aggregate + size term.
+- Seasons: 15-day seasons, 60-day year; climate ambient follows season and
+  time of day. Weather: clear, overcast, rain, fog, aether storm.
+- Roofs: Roof / No roof designations, built by Construction. Cleaning work
+  type removes filth in indoor rooms.
+- Client: field/room overlays (O), weather visuals, filth decals, cut-down
+  walls on the viewed level (V toggles all), env info in tooltips/inspector.
+
+Original design notes:
 
 - An `EnvFieldDef` (defs/env_fields) declares a scalar field: name, default,
   range, resolution (per cell or per room), **sources** (buildings, items,

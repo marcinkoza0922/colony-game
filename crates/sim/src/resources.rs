@@ -49,6 +49,24 @@ impl Clock {
         let sun = ((h - 6.0) / 12.0 * std::f32::consts::PI).sin();
         sun.clamp(0.0, 1.0).powf(0.5)
     }
+    /// Days per season; a year has four.
+    pub const SEASON_DAYS: u64 = 15;
+
+    /// 0 spring, 1 summer, 2 autumn, 3 winter.
+    pub fn season(&self) -> u32 {
+        (((self.day() - 1) / Self::SEASON_DAYS) % 4) as u32
+    }
+
+    pub fn season_name(&self) -> &'static str {
+        ["Spring", "Summer", "Autumn", "Winter"][self.season() as usize]
+    }
+
+    /// Position in the year, 0..1 (0 = first day of spring).
+    pub fn year_phase(&self) -> f32 {
+        let days = (self.t() as f64 / TICKS_PER_DAY as f64) % (Self::SEASON_DAYS * 4) as f64;
+        (days / (Self::SEASON_DAYS * 4) as f64) as f32
+    }
+
     pub fn time_string(&self) -> String {
         format!("Day {} {:02}:{:02}", self.day(), self.hour(), self.minute())
     }

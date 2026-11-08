@@ -106,6 +106,8 @@ pub struct Atlas {
     /// Thought bubble background (anchor at the tail tip).
     pub bubble: Rect,
     pub icons: Vec<(Icon, Rect)>,
+    /// Floor dirt decals (variants), white; tinted when drawn.
+    pub filth: Vec<Rect>,
     pub glyphs: Vec<Rect>,
     pub warnings: Vec<String>,
 }
@@ -240,6 +242,34 @@ impl Atlas {
             }
             icons.push((*icon, Rect { x: ix, y: oy, w: 7, h: 7, ax: 3, ay: 3 }));
         }
+        // Filth decals: scattered specks inside the floor diamond.
+        let mut filth = Vec::new();
+        let fx0 = bx0 + 40;
+        let mut seed = 0x9e37_79b9u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for v in 0..3u32 {
+            let ox = fx0 + v * (DW + 2);
+            for _ in 0..22 {
+                let x = rnd() % DW;
+                let y = rnd() % DH;
+                // Keep specks well inside the diamond.
+                let fx = (x as f32 + 0.5 - DW as f32 / 2.0).abs() / (DW as f32 / 2.0);
+                let fy = (y as f32 + 0.5 - DH as f32 / 2.0).abs() / (DH as f32 / 2.0);
+                if fx + fy > 0.75 {
+                    continue;
+                }
+                put(ox + x, oy + y, [255; 4]);
+                if rnd() % 3 == 0 && x + 1 < DW {
+                    put(ox + x + 1, oy + y, [255; 4]);
+                }
+            }
+            filth.push(Rect { x: ox, y: oy, w: DW, h: DH, ax: DW as i32 / 2, ay: DH as i32 / 2 });
+        }
         // Font glyphs, laid out in rows below.
         let mut glyphs = Vec::with_capacity(95);
         for i in 0..95u32 {
@@ -255,7 +285,7 @@ impl Atlas {
             }
             glyphs.push(Rect { x: gx, y: gy, w: font::GLYPH_W, h: font::GLYPH_H, ax: 0, ay: 0 });
         }
-        Atlas { w, h, pixels, normals, sprites, white, diamond, diamond_line, shadow, bubble, icons, glyphs, warnings }
+        Atlas { w, h, pixels, normals, sprites, white, diamond, diamond_line, shadow, bubble, icons, filth, glyphs, warnings }
     }
 
     pub fn get(&self, name: &str) -> Option<&SpriteSet> {

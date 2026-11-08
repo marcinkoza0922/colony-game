@@ -3,7 +3,7 @@
 
 use sim::Sim;
 use sim::components::{CurrentJob, MentalState, Mood, Needs, Pawn};
-use sim::defs::NeedRole;
+use sim::defs::{NeedRole, WeatherVisual};
 use sim::jobs::JobKind;
 use sim::resources::{GameLog, LogKind};
 
@@ -27,12 +27,26 @@ struct FloatText {
     color: [f32; 4],
 }
 
+struct Drop {
+    pos: (f32, f32),
+    vel: (f32, f32),
+    len: f32,
+    life: f32,
+    color: [f32; 4],
+}
+
 pub struct Fx {
     particles: Vec<Particle>,
     texts: Vec<FloatText>,
+    drops: Vec<Drop>,
     last_log_tick: Option<u64>,
     seed: u32,
     spawn_acc: f32,
+    weather_acc: f32,
+    flash: f32,
+    visual: WeatherVisual,
+    /// Visible world rect (x0, y0, x1, y1).
+    view: (f32, f32, f32, f32),
 }
 
 fn job_colors(kind: JobKind) -> &'static [[f32; 4]] {
@@ -48,7 +62,18 @@ fn job_colors(kind: JobKind) -> &'static [[f32; 4]] {
 
 impl Fx {
     pub fn new() -> Self {
-        Fx { particles: Vec::new(), texts: Vec::new(), last_log_tick: None, seed: 0x1234_5678, spawn_acc: 0.0 }
+        Fx {
+            particles: Vec::new(),
+            texts: Vec::new(),
+            drops: Vec::new(),
+            last_log_tick: None,
+            seed: 0x1234_5678,
+            spawn_acc: 0.0,
+            weather_acc: 0.0,
+            flash: 0.0,
+            visual: WeatherVisual::Clear,
+            view: (0.0, 0.0, 0.0, 0.0),
+        }
     }
 
     fn rand(&mut self) -> f32 {
@@ -56,6 +81,47 @@ impl Fx {
         self.seed ^= self.seed >> 17;
         self.seed ^= self.seed << 5;
         (self.seed >> 8) as f32 / (1u32 << 24) as f32
+    }
+
+    /// Weather precipitation and flashes over the visible world rect.
+    pub fn update_weather(&mut self, dt: f32, visual: WeatherVisual, view: (f32, f32, f32, f32), running: bool) {
+        self.visual = visual;
+        self.view = view;
+        let (x0, y0, x1, y1) = view;
+        let area = ((x1 - x0) * (y1 - y0)).max(1.0);
+        let (rate, kind) = match visual {
+            WeatherVisual::Rain => (area / 900.0, 0),
+            WeatherVisual::AetherStorm => (area / 6000.0, 1),
+            _ => (0.0, 0),
+        };
+        self.weather_acc += rate * dt;
+        while self.weather_acc >= 1.0 {
+            self.weather_acc -= 1.0;
+            let x = x0 + self.rand() * (x1 - x0 + 80.0);
+            let y = y0 - 20.0 + self.rand() * (y1 - y0) * 0.6;
+            let life = 0.35 + self.rand() * 0.5;
+            let d = if kind == 0 {
+                Drop { pos: (x, y), vel: (-60.0, 420.0), len: 6.0, life, color: [0.75, 0.82, 0.95, 0.45] }
+            } else {
+                let c = if self.rand() < 0.5 { [0.75, 0.4, 1.0, 0.8] } else { [0.4, 0.95, 0.9, 0.7] };
+                Drop { pos: (x, y), vel: ((self.rand() - 0.5) * 40.0, 60.0 + self.rand() * 60.0), len: 2.0, life: life * 3.0, color: c }
+            };
+            self.drops.push(d);
+        }
+        if running && visual == WeatherVisual::AetherStorm && self.rand() < dt * 0.25 {
+            self.flash = 1.0;
+        }
+        self.flash = (self.flash - dt * 3.0).max(0.0);
+        for d in &mut self.drops {
+            d.pos.0 += d.vel.0 * dt;
+            d.pos.1 += d.vel.1 * dt;
+            d.life -= dt;
+        }
+        self.drops.retain(|d| d.life > 0.0);
+        if self.drops.len() > 3000 {
+            let n = self.drops.len() - 3000;
+            self.drops.drain(0..n);
+        }
     }
 
     pub fn update(&mut self, dt: f32, sim: &Sim, anchors: &[PawnAnchor], running: bool) {
@@ -182,6 +248,24 @@ impl Fx {
         for t in &self.texts {
             let alpha = (1.0 - (t.age - 2.0).max(0.0)).clamp(0.0, 1.0);
             Self::text(&mut out, atlas, &t.text, t.pos.0, t.pos.1, [t.color[0], t.color[1], t.color[2], alpha]);
+        }
+        // Weather on top of everything in the world.
+        let white = atlas.uv(atlas.white);
+        for d in &self.drops {
+            out.push(Quad::unlit([d.pos.0.round(), d.pos.1.round()], [1.0, d.len], white, d.color));
+        }
+        let (x0, y0, x1, y1) = self.view;
+        let veil = match self.visual {
+            WeatherVisual::Fog => Some([0.72, 0.75, 0.8, 0.3]),
+            WeatherVisual::Rain => Some([0.3, 0.35, 0.45, 0.1]),
+            WeatherVisual::AetherStorm => Some([0.45, 0.2, 0.65, 0.12]),
+            WeatherVisual::Clear => None,
+        };
+        if let Some(c) = veil {
+            out.push(Quad::unlit([x0, y0], [x1 - x0, y1 - y0], white, c));
+        }
+        if self.flash > 0.0 {
+            out.push(Quad::unlit([x0, y0], [x1 - x0, y1 - y0], white, [0.85, 0.75, 1.0, self.flash * 0.35]));
         }
         out
     }

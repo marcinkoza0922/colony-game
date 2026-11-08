@@ -119,6 +119,27 @@ pub fn pawn_summary(world: &World, e: Entity) -> String {
             let _ = writeln!(s, "   thoughts: {}", thoughts.join(", "));
         }
     }
+    {
+        let map = world.res::<Map>();
+        let env = world.res::<crate::env::Env>();
+        let rooms = world.res::<crate::env::Rooms>();
+        let mut parts = Vec::new();
+        if map.in_bounds(pos) {
+            for (fid, fd) in defs.env_fields.iter() {
+                parts.push(format!("{}={}", fd.name, fd.format(env.get(fid, map.idx(pos)))));
+            }
+        }
+        let room = match rooms.indoor_room_at(&map, pos) {
+            Some(r) => format!(
+                "{} ({} cells, impressiveness {:.1})",
+                r.role.map(|x| defs.room_roles[x].label.as_str()).unwrap_or("room"),
+                r.cells.len(),
+                r.impressiveness
+            ),
+            None => "outdoors".into(),
+        };
+        let _ = writeln!(s, "   env: {} | {room}", parts.join(" "));
+    }
     if let Some(sc) = world.get::<StatCache>(e) {
         let c = &defs.core;
         let _ = writeln!(
@@ -142,7 +163,10 @@ pub fn colony_report(world: &World) -> String {
     let defs = world.res::<Rc<Defs>>().clone();
     let mut s = String::new();
     let clock = world.res::<Clock>().clone();
-    let _ = writeln!(s, "=== {} (tick {}) ===", clock.time_string(), clock.tick);
+    let weather = world.res::<crate::env::WeatherState>().current.map(|w| defs.weather[w].label.clone()).unwrap_or_default();
+    let amb = crate::env::ambient_values(&defs, &clock, &world.res::<crate::env::WeatherState>());
+    let amb_s: Vec<String> = defs.env_fields.iter().filter(|(_, f)| f.kind == crate::defs::FieldKind::Dynamic).map(|(id, f)| format!("{}={}", f.name, f.format(amb[id.index()]))).collect();
+    let _ = writeln!(s, "=== {} {} (tick {}) | {} | ambient {} ===", clock.season_name(), clock.time_string(), clock.tick, weather, amb_s.join(" "));
     let pawns: Vec<Entity> = world.read::<Pawn>().entities().to_vec();
     for e in pawns {
         s.push_str(&pawn_summary(world, e));

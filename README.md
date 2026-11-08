@@ -27,6 +27,8 @@ cargo test --workspace --release         # ECS, sim (determinism, save/load) and
 | Z | Stockpile tool |
 | B | Build menu (R rotates the blueprint) |
 | Tab | Work priorities |
+| O | Cycle environment overlays (temperature, filth, light, beauty, rooms) |
+| V | Cut all walls down (walls on the viewed level are always cut) |
 | F5 / F9 | Quick save / load (`saves/quick.sav`) |
 | F3 | Debug overlay |
 
@@ -66,5 +68,6 @@ cargo run --release -p sim --bin simrun -- --days 3 --every 12 --map-end 2
 # Offscreen screenshot after N ticks with scripted orders and camera setup
 cargo run --release -p client -- --shot out.png --orders --ticks 9000 \
     --select 0 --zoom 3 --angle 1 [--viewz 2] [--work] [--build] [--debug] [--mouse X,Y] \
-    [--frames 40]   # run live frames first (animation, particles)
+    [--frames 40] \   # run live frames first (animation, particles)
+    [--weather rain] [--overlay temperature|rooms|...] [--walls-down]
 ```

@@ -202,6 +202,9 @@ pub type NeedId = DefId<NeedDef>;
 pub type RaceId = DefId<RaceDef>;
 pub type QuirkId = DefId<QuirkDef>;
 pub type ThoughtId = DefId<ThoughtDef>;
+pub type EnvFieldId = DefId<EnvFieldDef>;
+pub type RoomRoleId = DefId<RoomRoleDef>;
+pub type WeatherId = DefId<WeatherDef>;
 
 fn one() -> f32 {
     1.0
@@ -239,6 +242,21 @@ pub enum Condition {
     Sleeping,
     HasQuirk(QuirkId),
     IsRace(RaceId),
+    /// Environment field value at the pawn's cell.
+    FieldBelow(EnvFieldId, f32),
+    FieldAbove(EnvFieldId, f32),
+    /// Aggregate of the field over the pawn's room (false outdoors).
+    RoomFieldBelow(EnvFieldId, f32),
+    RoomFieldAbove(EnvFieldId, f32),
+    /// Field at the pawn's cell is outside the race's comfort range.
+    TooLow(EnvFieldId),
+    TooHigh(EnvFieldId),
+    /// In an enclosed, roofed room.
+    Indoors,
+    InRoomRole(RoomRoleId),
+    ImpressivenessAbove(f32),
+    ImpressivenessBelow(f32),
+    Weather(WeatherId),
     All(Vec<Condition>),
     Any(Vec<Condition>),
     Not(Box<Condition>),
@@ -298,6 +316,8 @@ pub struct ItemDef {
     /// Memory thought given when eaten.
     #[serde(default)]
     pub eat_thought: Option<ThoughtId>,
+    #[serde(default)]
+    pub env: Vec<EnvEmit>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -329,6 +349,8 @@ pub struct PlantDef {
     /// Worldgen density on fertile soil (0..1).
     #[serde(default)]
     pub wild_density: f32,
+    #[serde(default)]
+    pub env: Vec<EnvEmit>,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -361,6 +383,8 @@ pub struct BuildingDef {
     pub sleep_thought: Option<ThoughtId>,
     #[serde(default)]
     pub light: Option<LightDef>,
+    #[serde(default)]
+    pub env: Vec<EnvEmit>,
 }
 
 fn default_true() -> bool {
@@ -474,6 +498,9 @@ pub struct RaceDef {
     pub adult_age: (u32, u32),
     #[serde(default)]
     pub appearance: AppearanceDef,
+    /// Comfortable ranges for environment fields (see `TooLow` / `TooHigh`).
+    #[serde(default)]
+    pub comfort: Vec<(EnvFieldId, f32, f32)>,
     pub first_names: Vec<String>,
     #[serde(default)]
     pub last_names: Vec<String>,
@@ -512,6 +539,172 @@ pub fn parse_hex(s: &str) -> [u8; 3] {
         (Some(r), Some(g), Some(b)) => [r, g, b],
         _ => [255, 0, 255],
     }
+}
+
+// -------------------------------------------------------------- environment
+
+/// How a field changes over time.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FieldKind {
+    /// Stateful per-cell value: emitters add to it, it diffuses between open
+    /// cells, and relaxes toward ambient (temperature, filth, ...).
+    #[default]
+    Dynamic,
+    /// Recomputed from emitters and inputs each update (beauty, light, ...).
+    Static,
+}
+
+/// Ambient (outdoor) baseline of a field.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub enum Ambient {
+    Constant(f32),
+    /// mean, seasonal amplitude, daily amplitude (warmest mid-summer / mid-afternoon).
+    Climate(f32, f32, f32),
+}
+
+impl Default for Ambient {
+    fn default() -> Self {
+        Ambient::Constant(0.0)
+    }
+}
+
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub enum FieldInput {
+    /// Another field's value at the same cell.
+    Field(EnvFieldId),
+    /// Outdoor daylight 0..1 (0 when roofed), scaled by weather.
+    Daylight,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RoomAgg {
+    #[default]
+    Average,
+    Sum,
+    Min,
+    Max,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct EnvFieldDef {
+    pub name: String,
+    pub label: String,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub decimals: u8,
+    #[serde(default)]
+    pub kind: FieldKind,
+    /// Value of a fresh cell / static baseline.
+    #[serde(default)]
+    pub default: f32,
+    #[serde(default)]
+    pub min: Option<f32>,
+    #[serde(default)]
+    pub max: Option<f32>,
+    // --- dynamic fields
+    /// Fraction exchanged with each open neighbour per update (0..0.2).
+    #[serde(default)]
+    pub diffusion: f32,
+    /// Fraction pulled toward ambient per update when not roofed / roofed.
+    #[serde(default)]
+    pub outdoor_pull: f32,
+    #[serde(default)]
+    pub indoor_pull: f32,
+    #[serde(default)]
+    pub ambient: Ambient,
+    /// Solid neighbours act as a constant boundary at this value
+    /// (`None` = they are ignored). Climate fields default to their mean.
+    #[serde(default)]
+    pub ground: Option<f32>,
+    /// Added to a cell each time a pawn steps onto it.
+    #[serde(default)]
+    pub traffic: f32,
+    #[serde(default)]
+    pub traffic_indoor_only: bool,
+    // --- static fields
+    #[serde(default)]
+    pub inputs: Vec<(FieldInput, f32)>,
+    /// Emitters only count for cells in the same room (or both outdoors).
+    #[serde(default)]
+    pub same_room_only: bool,
+    // --- rooms & UI
+    #[serde(default)]
+    pub room_agg: RoomAgg,
+    /// Contribution of the room aggregate to room impressiveness.
+    #[serde(default)]
+    pub impressiveness: f32,
+    /// Overlay colour range (low, high).
+    #[serde(default)]
+    pub overlay: Option<(f32, f32)>,
+}
+
+impl EnvFieldDef {
+    pub fn clamp(&self, v: f32) -> f32 {
+        let v = self.min.map_or(v, |m| v.max(m));
+        self.max.map_or(v, |m| v.min(m))
+    }
+
+    pub fn format(&self, v: f32) -> String {
+        format!("{:.*}{}", self.decimals as usize, v, self.unit)
+    }
+}
+
+/// Something that affects an environment field around a thing.
+#[derive(Deserialize, Clone, Debug)]
+pub struct EnvEmit {
+    pub field: EnvFieldId,
+    /// Static fields: value added at full strength. Dynamic fields: amount
+    /// added per update (or pull rate toward `target`).
+    pub amount: f32,
+    /// Reach in cells (0 = own cell only); strength falls off linearly.
+    #[serde(default)]
+    pub radius: f32,
+    /// Dynamic fields: push toward this value instead of adding (thermostats).
+    #[serde(default)]
+    pub target: Option<f32>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct RoomRoleDef {
+    pub name: String,
+    pub label: String,
+    /// Buildings that count toward this role.
+    pub buildings: Vec<BuildingId>,
+    #[serde(default = "one_u32")]
+    pub min_count: u32,
+    #[serde(default)]
+    pub max_count: Option<u32>,
+    /// Highest-priority matching role wins.
+    #[serde(default)]
+    pub priority: f32,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WeatherVisual {
+    #[default]
+    Clear,
+    Rain,
+    Fog,
+    AetherStorm,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct WeatherDef {
+    pub name: String,
+    pub label: String,
+    #[serde(default = "one")]
+    pub weight: f32,
+    /// Duration range in hours.
+    pub hours: (f32, f32),
+    /// Offsets added to fields' ambient values.
+    #[serde(default)]
+    pub ambient: Vec<(EnvFieldId, f32)>,
+    /// Multiplier on outdoor daylight.
+    #[serde(default = "one")]
+    pub light: f32,
+    #[serde(default)]
+    pub visual: WeatherVisual,
 }
 
 /// A point light emitted by a building.
@@ -603,6 +796,9 @@ impl_def! {
     RaceDef => "races",
     QuirkDef => "quirks",
     ThoughtDef => "thoughts",
+    EnvFieldDef => "env_fields",
+    RoomRoleDef => "room_roles",
+    WeatherDef => "weather",
 }
 
 // ------------------------------------------------------------------- Defs
@@ -627,6 +823,9 @@ pub struct CoreIds {
     pub stairs: BuildingId,
     pub thought_slept_ground: ThoughtId,
     pub thought_ate_without_table: Option<ThoughtId>,
+    pub wt_cleaning: Option<WorkTypeId>,
+    pub field_filth: Option<EnvFieldId>,
+    pub field_temperature: Option<EnvFieldId>,
 }
 
 #[derive(Clone, Debug)]
@@ -643,6 +842,9 @@ pub struct Defs {
     pub races: DefList<RaceDef>,
     pub quirks: DefList<QuirkDef>,
     pub thoughts: DefList<ThoughtDef>,
+    pub env_fields: DefList<EnvFieldDef>,
+    pub room_roles: DefList<RoomRoleDef>,
+    pub weather: DefList<WeatherDef>,
     pub core: CoreIds,
     names: Rc<NameTables>,
 }
@@ -655,7 +857,10 @@ struct NameOnly {
 /// Source of def files: kind -> list of (file label, RON text), in load order.
 pub type DefSources = Vec<(&'static str, Vec<(String, String)>)>;
 
-const KINDS: [&str; 12] = [
+const KINDS: [&str; 15] = [
+    "env_fields",
+    "room_roles",
+    "weather",
     "terrain",
     "items",
     "plants",
@@ -765,6 +970,9 @@ impl Defs {
             let races = parse(sources, t, previous.map(|p| &p.races))?;
             let quirks = parse(sources, t, previous.map(|p| &p.quirks))?;
             let thoughts = parse(sources, t, previous.map(|p| &p.thoughts))?;
+            let env_fields = parse(sources, t, previous.map(|p| &p.env_fields))?;
+            let room_roles = parse(sources, t, previous.map(|p| &p.room_roles))?;
+            let weather = parse(sources, t, previous.map(|p| &p.weather))?;
 
             fn req<T>(r: Option<DefId<T>>, what: &str) -> Result<DefId<T>, String> {
                 r.ok_or_else(|| format!("required def `{what}` missing"))
@@ -787,6 +995,9 @@ impl Defs {
                 stairs: req(buildings.find("stairs"), "buildings/stairs")?,
                 thought_slept_ground: req(thoughts.find("slept_on_ground"), "thoughts/slept_on_ground")?,
                 thought_ate_without_table: thoughts.find("ate_without_table"),
+                wt_cleaning: work_types.find("cleaning"),
+                field_filth: env_fields.find("filth"),
+                field_temperature: env_fields.find("temperature"),
             };
             Ok(Defs {
                 terrain,
@@ -801,6 +1012,9 @@ impl Defs {
                 races,
                 quirks,
                 thoughts,
+                env_fields,
+                room_roles,
+                weather,
                 core,
                 names: tables.clone(),
             })

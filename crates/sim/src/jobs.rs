@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::*;
 use crate::defs::*;
+use crate::env::Env;
 use crate::geom::P3;
 use crate::items;
 use crate::map::{Designation, Map};
@@ -16,6 +17,25 @@ use crate::stats::{self, stat};
 
 /// Base work units for mining one cell of hardness 1 (1 unit = 1 tick at speed 1).
 pub const MINE_WORK: f32 = 240.0;
+pub const ROOF_WORK: f32 = 70.0;
+pub const CLEAN_WORK: f32 = 50.0;
+
+/// Pawn stepped onto `p`: apply foot-traffic contributions (e.g. filth).
+fn foot_traffic(world: &World, p: P3) {
+    let defs = defs(world);
+    let map = world.res::<Map>();
+    if !map.in_bounds(p) {
+        return;
+    }
+    let idx = map.idx(p);
+    let roofed = map.is_roofed(p);
+    let mut env = world.res_mut::<Env>();
+    for (fid, fd) in defs.env_fields.iter() {
+        if fd.traffic != 0.0 && (!fd.traffic_indoor_only || roofed) {
+            env.queue_add(fid, idx, fd.traffic);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobKind {
@@ -27,6 +47,8 @@ pub enum JobKind {
     Deliver,
     Build,
     Craft,
+    Roof,
+    Clean,
     Eat,
     Sleep,
     Relax,
@@ -47,12 +69,16 @@ impl JobKind {
                 | JobKind::Deliver
                 | JobKind::Build
                 | JobKind::Craft
+                | JobKind::Roof
+                | JobKind::Clean
         )
     }
 
     pub fn label(self) -> &'static str {
         match self {
             JobKind::Mine => "Mining",
+            JobKind::Roof => "Roofing",
+            JobKind::Clean => "Cleaning",
             JobKind::DigStairs => "Digging stairs",
             JobKind::Chop => "Chopping",
             JobKind::Harvest => "Harvesting",
@@ -78,6 +104,9 @@ pub enum WorkTarget {
     Harvest(Entity),
     Build(Entity),
     Craft { bench: Entity, bill: u32 },
+    /// Build (true) or remove (false) the roof over a cell.
+    Roof(P3, bool),
+    Clean(P3),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -278,6 +307,7 @@ fn toil_goto(world: &mut World, pawn: Entity, goal: Goal) -> ToilResult {
         }
         mover.progress -= mover.step_cost;
         cur = next;
+        foot_traffic(world, next);
         mover.from = next;
         mover.next += 1;
         if let Some(n2) = mover.current_step() {
@@ -384,6 +414,21 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
     let core = &defs.core;
     let map = world.res::<Map>();
     match target {
+        WorkTarget::Roof(p, build) => {
+            let c = map.get(p).ok_or("out of bounds")?;
+            let want = if build { Designation::BuildRoof } else { Designation::RemoveRoof };
+            if c.designation != want || c.roof == build {
+                return Err("roof designation removed".into());
+            }
+            Ok((ROOF_WORK, core.stat_construction_speed, Some(core.skill_construction)))
+        }
+        WorkTarget::Clean(p) => {
+            let f = core.field_filth.ok_or("no filth field")?;
+            if !map.in_bounds(p) || world.res::<Env>().get(f, map.idx(p)) < 0.05 {
+                return Err("already clean".into());
+            }
+            Ok((CLEAN_WORK, core.stat_work_speed, None))
+        }
         WorkTarget::Mine(p) => {
             let c = map.get(p).ok_or("out of bounds")?;
             let t = c.solid.ok_or("already mined")?;
@@ -445,7 +490,7 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
 
 fn target_cell(world: &World, t: WorkTarget) -> Option<P3> {
     match t {
-        WorkTarget::Mine(p) | WorkTarget::DigStairs(p) => Some(p),
+        WorkTarget::Mine(p) | WorkTarget::DigStairs(p) | WorkTarget::Roof(p, _) | WorkTarget::Clean(p) => Some(p),
         WorkTarget::Chop(e) | WorkTarget::Harvest(e) | WorkTarget::Build(e) => pos_of(world, e),
         WorkTarget::Craft { bench, .. } => pos_of(world, bench),
     }
@@ -509,6 +554,17 @@ fn toil_work(world: &mut World, pawn: Entity, job: &mut Job, target: WorkTarget)
 fn complete_work(world: &mut World, pawn: Entity, target: WorkTarget) {
     let defs = defs(world);
     match target {
+        WorkTarget::Roof(p, build) => {
+            let mut map = world.res_mut::<Map>();
+            map.set_roof(p, build);
+            map.cell_mut(p).designation = Designation::None;
+        }
+        WorkTarget::Clean(p) => {
+            if let Some(f) = defs.core.field_filth {
+                let idx = world.res::<Map>().idx(p);
+                world.res_mut::<Env>().queue_set(f, idx, 0.0);
+            }
+        }
         WorkTarget::Mine(p) => {
             let t = world.res::<Map>().cell(p).solid;
             {
@@ -564,7 +620,7 @@ fn complete_work(world: &mut World, pawn: Entity, target: WorkTarget) {
             let Some(b) = world.get_cloned::<Blueprint>(bp) else { return };
             let p = pos_of(world, bp).unwrap();
             world.despawn(bp);
-            world.res_mut::<Map>().cell_mut(p).building = None;
+            world.res_mut::<Map>().set_building(p, None, None);
             spawn_building(world, b.def, b.rot, p);
             let name = pawn_name(world, pawn);
             log_about(world, LogKind::Info, pawn, format!("{name} built a {}.", defs.buildings[b.def].label));
@@ -626,8 +682,7 @@ fn settle_above(world: &mut World, p: P3) {
         remove_plant(world, pl);
     }
     if let Some(b) = building {
-        world.res_mut::<Map>().cell_mut(up).building = None;
-        world.res_mut::<Map>().cell_mut(up).building_kind = None;
+        world.res_mut::<Map>().set_building(up, None, None);
         world.despawn(b);
     }
 }
@@ -663,12 +718,7 @@ pub fn spawn_building(world: &mut World, def: BuildingId, rot: u8, p: P3) -> Ent
         }
         _ => {}
     }
-    {
-        let mut map = world.res_mut::<Map>();
-        let c = map.cell_mut(p);
-        c.building = Some(e);
-        c.building_kind = Some(bd.kind);
-    }
+    world.res_mut::<Map>().set_building(p, Some(e), Some(bd.kind));
     if !bd.passable()
         && let Some(it) = item
     {

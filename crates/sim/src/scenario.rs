@@ -44,17 +44,36 @@ pub fn basic_orders(sim: &mut Sim) {
     orders::designate(w, &harvest, DesignateTool::Harvest);
 
     let b = |n: &str| defs.buildings.expect(n);
-    let plan: Vec<(P3, &str)> = std::iter::once((start.offset(-3, -2, 0), "campfire"))
-        .chain((0..3).map(|i| (start.offset(-3 + i * 2, 3, 0), "bed")))
-        .chain(std::iter::once((start.offset(-1, -3, 0), "stonecutter")))
-        .chain(std::iter::once((start.offset(1, -3, 0), "workbench")))
-        .chain((-3..=3).map(|x| (start.offset(x, -5, 0), "wood_wall")))
-        .collect();
+    let mut plan: Vec<(P3, &str)> = vec![
+        (start.offset(-3, -2, 0), "campfire"),
+        (start.offset(-1, -3, 0), "stonecutter"),
+        (start.offset(1, -3, 0), "workbench"),
+    ];
+    // A walled, roofed barracks (7x5 incl. walls) on the nearest flat site:
+    // door in the north wall, three beds and a torch inside.
+    let site = find_flat_site(w, start, 7, 5);
+    let mut roof = Vec::new();
+    if let Some(o) = site {
+        for x in 0..7 {
+            for y in 0..5 {
+                let p = o.offset(x, y, 0);
+                let edge = x == 0 || x == 6 || y == 0 || y == 4;
+                if edge {
+                    plan.push((p, if x == 3 && y == 0 { "door" } else { "wood_wall" }));
+                } else {
+                    roof.push(p);
+                }
+            }
+        }
+        plan.extend([(o.offset(1, 3, 0), "bed"), (o.offset(3, 3, 0), "bed"), (o.offset(5, 3, 0), "bed")]);
+        plan.push((o.offset(5, 1, 0), "torch"));
+    }
     for (p, name) in plan {
         if orders::place_blueprint(w, p, b(name), 0).is_none() {
             eprintln!("scenario: could not place {name} at {p}");
         }
     }
+    orders::designate(w, &roof, DesignateTool::BuildRoof);
 
     // Mine any solid cells at colony level within range.
     let mine: Vec<P3> = {
@@ -72,6 +91,35 @@ pub fn basic_orders(sim: &mut Sim) {
         v
     };
     orders::designate(w, &mine, DesignateTool::Mine);
+}
+
+/// Nearest w x h rectangle (top-left returned) of plain walkable ground with
+/// no ramps, zones, buildings or items, avoiding the landing site itself.
+fn find_flat_site(world: &ecs::World, start: P3, w: i32, h: i32) -> Option<P3> {
+    let map = world.res::<Map>();
+    let mut best: Option<(i32, P3)> = None;
+    for dy in -18..=18 {
+        for dx in -18..=18 {
+            let o = start.offset(dx, dy, 0);
+            // Keep clear of the camp core (fire, benches, stockpile, supplies).
+            if (o.x - 1 <= start.x + 9) && (o.x + w >= start.x - 4) && (o.y - 1 <= start.y + 3) && (o.y + h >= start.y - 4) {
+                continue;
+            }
+            let ok = (0..w).all(|x| {
+                (0..h).all(|y| {
+                    let p = o.offset(x, y, 0);
+                    map.is_walkable(p) && map.get(p).is_some_and(|c| c.ramp.is_none() && c.zone.is_none() && c.building.is_none() && c.item.is_none())
+                })
+            });
+            if ok {
+                let d = dx.abs() + dy.abs();
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, o));
+                }
+            }
+        }
+    }
+    best.map(|(_, o)| o)
 }
 
 /// Adds bills to benches once they exist (call periodically).

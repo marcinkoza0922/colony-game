@@ -105,6 +105,8 @@ fn give_work(world: &World, defs: &Defs, pawn: Entity, pos: P3, wt: WorkTypeId) 
         construction_job(world, defs, pawn, pos)
     } else if wt == core.wt_plants {
         plant_job(world, defs, pawn, pos)
+    } else if Some(wt) == core.wt_cleaning {
+        clean_job(world, defs, pawn, pos)
     } else {
         craft_job(world, defs, pawn, pos, wt)
     }
@@ -383,7 +385,73 @@ fn gather(world: &World, pawn: Entity, pos: P3, def: ItemId, need: u32) -> Vec<(
     if got < need { Vec::new() } else { out }
 }
 
+fn roof_job(world: &World, pawn: Entity, pos: P3) -> Option<Job> {
+    let found = {
+        let map = world.res::<Map>();
+        let res = world.res::<Reservations>();
+        let mut pf = world.res_mut::<Pathfinder>();
+        pf.search(&map, pos, SEARCH_COST, |p| {
+            for (dx, dy) in std::iter::once((0, 0)).chain(NEIGHBORS8) {
+                let q = p.offset(dx, dy, 0);
+                let Some(c) = map.get(q) else { continue };
+                let build = match c.designation {
+                    Designation::BuildRoof if !c.roof => true,
+                    Designation::RemoveRoof if c.roof => false,
+                    _ => continue,
+                };
+                if !res.blocked(ResKey::Cell(q), pawn) {
+                    return Some((q, build));
+                }
+            }
+            None
+        })
+        .map(|(r, _)| r)
+    };
+    let (cell, build) = found?;
+    if !reserve(world, pawn, &[ResKey::Cell(cell)]) {
+        return None;
+    }
+    Some(Job::new(JobKind::Roof, vec![Toil::GoTo(Goal::Near(cell)), Toil::Work(WorkTarget::Roof(cell, build))]))
+}
+
+fn clean_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
+    let filth = defs.core.field_filth?;
+    let found = {
+        let map = world.res::<Map>();
+        let env = world.res::<crate::env::Env>();
+        let rooms = world.res::<crate::env::Rooms>();
+        let res = world.res::<Reservations>();
+        // Cells already cleaned this interval (change still pending).
+        let pending: Vec<u32> = env
+            .pending
+            .iter()
+            .filter_map(|op| match op {
+                crate::env::EnvOp::Set(f, i, _) if *f == filth => Some(*i),
+                _ => None,
+            })
+            .collect();
+        let mut pf = world.res_mut::<Pathfinder>();
+        pf.search(&map, pos, SEARCH_COST, |p| {
+            let i = map.idx(p);
+            (env.get(filth, i) > 0.4
+                && rooms.indoor_room_at(&map, p).is_some()
+                && !pending.contains(&(i as u32))
+                && !res.blocked(ResKey::Cell(p), pawn))
+            .then_some(p)
+        })
+        .map(|(r, _)| r)
+    };
+    let cell = found?;
+    if !reserve(world, pawn, &[ResKey::Cell(cell)]) {
+        return None;
+    }
+    Some(Job::new(JobKind::Clean, vec![Toil::GoTo(Goal::Near(cell)), Toil::Work(WorkTarget::Clean(cell))]))
+}
+
 fn construction_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
+    if let Some(j) = roof_job(world, pawn, pos) {
+        return Some(j);
+    }
     let mut candidates: Vec<(Entity, P3)> = Vec::new();
     {
         let map = world.res::<Map>();

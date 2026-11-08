@@ -17,6 +17,10 @@ pub enum Designation {
     Chop,
     /// Harvest the plant on this cell.
     Harvest,
+    /// Build a roof over this cell.
+    BuildRoof,
+    /// Remove the roof over this cell.
+    RemoveRoof,
 }
 
 /// One map cell. A cell is either solid terrain or open space; open cells can
@@ -33,6 +37,8 @@ pub struct Cell {
     pub item: Option<Entity>,
     pub designation: Designation,
     pub zone: Option<u16>,
+    /// Constructed roof covering this cell.
+    pub roof: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -43,11 +49,14 @@ pub struct Map {
     cells: Vec<Cell>,
     /// Bumped on any change that affects rendering / pathing (cheap dirty flag).
     pub revision: u64,
+    /// Bumped only on structural changes (terrain, walls/doors, roofs) that
+    /// can change rooms.
+    pub struct_rev: u64,
 }
 
 impl Map {
     pub fn new(w: i32, h: i32, d: i32) -> Self {
-        Self { w, h, d, cells: vec![Cell::default(); (w * h * d) as usize], revision: 0 }
+        Self { w, h, d, cells: vec![Cell::default(); (w * h * d) as usize], revision: 0, struct_rev: 1 }
     }
 
     #[inline]
@@ -144,9 +153,42 @@ impl Map {
         (0..=max_z.min(self.d - 1)).rev().find(|&z| self.is_walkable(P3::new(x, y, z)))
     }
 
-    /// True if any solid cell is above `p` (roofed / underground).
+    /// True if a constructed roof covers `p` or any solid cell is above it.
     pub fn is_roofed(&self, p: P3) -> bool {
+        self.get(p).is_some_and(|c| c.roof) || (p.z + 1..self.d).any(|z| self.is_solid(P3::new(p.x, p.y, z)))
+    }
+
+    /// True if only rock (no constructed roof) covers `p`.
+    pub fn is_underground(&self, p: P3) -> bool {
         (p.z + 1..self.d).any(|z| self.is_solid(P3::new(p.x, p.y, z)))
+    }
+
+    /// Sets (or clears) the building occupying a cell. Use this instead of
+    /// writing `building`/`building_kind` directly so room detection notices.
+    pub fn set_building(&mut self, p: P3, e: Option<ecs::Entity>, kind: Option<BuildingKind>) {
+        let c = self.cell_mut(p);
+        let structural = c.building_kind != kind;
+        c.building = e;
+        c.building_kind = kind;
+        if structural {
+            self.struct_rev += 1;
+        }
+    }
+
+    pub fn set_roof(&mut self, p: P3, roof: bool) {
+        let c = self.cell_mut(p);
+        if c.roof != roof {
+            c.roof = roof;
+            self.struct_rev += 1;
+        }
+    }
+
+    /// Open cells that separate rooms: walls, doors and solid terrain.
+    pub fn is_room_boundary(&self, p: P3) -> bool {
+        match self.get(p) {
+            Some(c) => c.solid.is_some() || matches!(c.building_kind, Some(BuildingKind::Wall) | Some(BuildingKind::Door)),
+            None => true,
+        }
     }
 
     /// Calls `f` for every cell reachable in one step from `p` with its move cost
@@ -217,6 +259,7 @@ impl Map {
         if t.is_some() {
             c.ramp = None;
         }
+        self.struct_rev += 1;
     }
 
     /// Removes ramps that no longer make sense (e.g. after mining the slope's
@@ -257,6 +300,7 @@ struct CellSave {
     item: Option<Entity>,
     designation: Designation,
     zone: Option<u16>,
+    roof: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -319,6 +363,7 @@ impl Serialize for Map {
                 || c.item.is_some()
                 || c.designation != Designation::None
                 || c.zone.is_some()
+                || c.roof
             {
                 extras.push((
                     i as u32,
@@ -330,6 +375,7 @@ impl Serialize for Map {
                         item: c.item,
                         designation: c.designation,
                         zone: c.zone,
+                        roof: c.roof,
                     },
                 ));
             }
@@ -364,6 +410,7 @@ impl<'de> Deserialize<'de> for Map {
             c.item = cs.item;
             c.designation = cs.designation;
             c.zone = cs.zone;
+            c.roof = cs.roof;
         }
         Ok(map)
     }

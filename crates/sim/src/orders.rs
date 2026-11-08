@@ -19,6 +19,8 @@ pub enum DesignateTool {
     DigStairs,
     Chop,
     Harvest,
+    BuildRoof,
+    RemoveRoof,
     /// Clears designations and cancels blueprints.
     Cancel,
 }
@@ -41,6 +43,8 @@ pub fn designation_valid(world: &World, p: P3, tool: DesignateTool) -> bool {
         DesignateTool::Harvest => c.plant.is_some_and(|e| {
             world.get::<Plant>(e).is_some_and(|pl| defs.plants[pl.def].harvest.as_ref().is_some_and(|h| pl.growth >= h.min_growth))
         }),
+        DesignateTool::BuildRoof => c.solid.is_none() && !c.roof && c.designation == Designation::None,
+        DesignateTool::RemoveRoof => c.solid.is_none() && c.roof,
         DesignateTool::Cancel => c.designation != Designation::None || c.building.is_some_and(|b| world.has::<Blueprint>(b)),
     }
 }
@@ -58,6 +62,8 @@ pub fn designate(world: &mut World, cells: &[P3], tool: DesignateTool) -> usize 
             DesignateTool::DigStairs => Designation::DigStairs,
             DesignateTool::Chop => Designation::Chop,
             DesignateTool::Harvest => Designation::Harvest,
+            DesignateTool::BuildRoof => Designation::BuildRoof,
+            DesignateTool::RemoveRoof => Designation::RemoveRoof,
             DesignateTool::Cancel => {
                 let bp = world.res::<Map>().cell(p).building.filter(|b| world.has::<Blueprint>(*b));
                 if let Some(bp) = bp {
@@ -81,7 +87,7 @@ fn cancel_blueprint(world: &mut World, bp: Entity) {
             crate::items::spawn_items(world, c.item, *n, p);
         }
     }
-    world.res_mut::<Map>().cell_mut(p).building = None;
+    world.res_mut::<Map>().set_building(p, None, None);
     world.despawn(bp);
 }
 
@@ -103,7 +109,7 @@ pub fn place_blueprint(world: &mut World, p: P3, def: BuildingId, rot: u8) -> Op
     }
     let n = defs(world).buildings[def].cost.len();
     let e = world.spawn((Blueprint { def, rot: rot % 4, delivered: vec![0; n], work_done: 0.0 }, Position(p)));
-    world.res_mut::<Map>().cell_mut(p).building = Some(e);
+    world.res_mut::<Map>().set_building(p, Some(e), None);
     Some(e)
 }
 
@@ -121,12 +127,7 @@ pub fn deconstruct(world: &mut World, building: Entity) {
             crate::items::spawn_items(world, c.item, n, p);
         }
     }
-    {
-        let mut map = world.res_mut::<Map>();
-        let cell = map.cell_mut(p);
-        cell.building = None;
-        cell.building_kind = None;
-    }
+    world.res_mut::<Map>().set_building(p, None, None);
     world.despawn(building);
 }
 

@@ -13,6 +13,8 @@ use sim::map::{Designation, Map};
 use sim::orders::{self, DesignateTool};
 use sim::path::Pathfinder;
 use sim::resources::{Clock, GameLog, LogKind, SimMeta, TICKS_PER_SECOND, Zones};
+use sim::defs::WeatherVisual;
+use sim::env::{Env, Rooms, WeatherState};
 use sim::stats::StatCache;
 use sim::{P3, Sim};
 use winit::keyboard::KeyCode;
@@ -21,7 +23,7 @@ use crate::atlas::Atlas;
 use crate::fx::Fx;
 use crate::gfx::{Lighting, Quad, Xf};
 use crate::iso::{Camera, Proj};
-use crate::scene::{self, FrameParams, Preview, Scene};
+use crate::scene::{self, FrameParams, Overlay, Preview, Scene};
 use crate::ui::{Input, Ui, theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +67,8 @@ pub struct Game {
     pub show_work: bool,
     pub show_build: bool,
     pub show_debug: bool,
+    pub overlay: Overlay,
+    pub walls_down: bool,
     status: Option<(String, f32)>,
     time: f32,
     // perf
@@ -126,7 +130,7 @@ pub fn map_to_cam(angle: u8) -> [[f32; 3]; 3] {
 }
 
 /// Sun, sky and point lights for the current time of day and camera angle.
-pub fn lighting(clock: &Clock, angle: u8, lights: Vec<([f32; 3], f32, [f32; 3])>) -> Lighting {
+pub fn lighting(clock: &Clock, angle: u8, lights: Vec<([f32; 3], f32, [f32; 3])>, weather_light: f32, visual: WeatherVisual) -> Lighting {
     let m = map_to_cam(angle);
     let apply = |v: [f32; 3]| {
         let r = [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]);
@@ -141,16 +145,25 @@ pub fn lighting(clock: &Clock, angle: u8, lights: Vec<([f32; 3], f32, [f32; 3])>
     let moon = [-0.3, 0.3, 0.9];
     let dusk = (1.0 - (day - 0.35).abs() / 0.35).clamp(0.0, 1.0) * (day > 0.0) as u8 as f32;
     let lerp = |a: [f32; 3], b: [f32; 3], t: f32| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    // Weather dims direct sun more than the sky.
+    let wl = weather_light.clamp(0.0, 1.0);
     let sun_col = if day > 0.02 {
         let c = lerp([1.0, 0.97, 0.9], [1.0, 0.7, 0.45], dusk * 0.7);
-        [c[0] * 0.62 * day, c[1] * 0.62 * day, c[2] * 0.62 * day]
+        let k = 0.62 * day * wl * wl;
+        [c[0] * k, c[1] * k, c[2] * k]
     } else {
         [0.12, 0.15, 0.24]
     };
+    let mut sky = lerp([0.2, 0.22, 0.36], [0.56, 0.56, 0.58], day);
+    let sk = 0.6 + 0.4 * wl;
+    sky = [sky[0] * sk, sky[1] * sk, sky[2] * sk];
+    if visual == WeatherVisual::AetherStorm {
+        sky = [sky[0] * 1.05 + 0.06, sky[1] * 0.85, sky[2] * 1.15 + 0.08];
+    }
     Lighting {
         sun_dir: apply(if day > 0.02 { sun } else { moon }),
         sun_col,
-        sky: lerp([0.2, 0.22, 0.36], [0.56, 0.56, 0.58], day),
+        sky,
         cave: [0.17, 0.16, 0.2],
         map_to_cam: m,
         lights,
@@ -181,6 +194,8 @@ impl Game {
             show_work: false,
             show_build: false,
             show_debug: false,
+            overlay: Overlay::None,
+            walls_down: false,
             status: None,
             time: 0.0,
             last_tick_ms: 0.0,
@@ -326,6 +341,11 @@ impl Game {
                 KeyCode::KeyZ => self.tool = Tool::Stockpile,
                 KeyCode::KeyB => self.show_build = !self.show_build,
                 KeyCode::Tab => self.show_work = !self.show_work,
+                KeyCode::KeyO => self.cycle_overlay(),
+                KeyCode::KeyV => {
+                    self.walls_down = !self.walls_down;
+                    self.flash(if self.walls_down { "Walls cut down" } else { "Walls up" });
+                }
                 KeyCode::Equal | KeyCode::NumpadAdd => self.cam.zoom = (self.cam.zoom + 1).min(6),
                 KeyCode::Minus | KeyCode::NumpadSubtract => self.cam.zoom = (self.cam.zoom - 1).max(1),
                 KeyCode::Escape => {
@@ -562,20 +582,54 @@ impl Game {
             preview: &preview,
             preview_sprite,
             time: self.time,
+            overlay: self.overlay,
+            walls_down: self.walls_down,
         };
         let mut world = self.scene.build(&self.sim, atlas, &fp);
         let running = !self.paused && self.last_ticks > 0;
         self.fx.update(dt, &self.sim, &self.scene.anchors, running);
+        {
+            let (ox, oy) = self.cam.offset(screen);
+            let z = self.cam.zoom as f32;
+            let view = (-ox / z, -oy / z, (screen.0 as f32 - ox) / z, (screen.1 as f32 - oy) / z);
+            let visual = self.sim.world.res::<WeatherState>().current.map(|w| self.defs().weather[w].visual).unwrap_or_default();
+            self.fx.update_weather(dt, visual, view, !self.paused);
+        }
         world.extend(self.fx.quads(atlas, &self.sim, &self.scene.anchors, self.time));
         let (ox, oy) = self.cam.offset(screen);
         let clock = self.sim.world.res::<Clock>().clone();
-        let lighting = lighting(&clock, self.cam.angle, self.scene.lights.clone());
+        let weather = self.sim.world.res::<WeatherState>().clone();
+        let wlight = weather.light(&self.defs());
+        let visual = weather.current.map(|w| self.defs().weather[w].visual).unwrap_or_default();
+        let lighting = lighting(&clock, self.cam.angle, self.scene.lights.clone(), wlight, visual);
         FrameOut {
             world,
             world_xf: Xf { scale: self.cam.zoom as f32, offset: [ox, oy] },
             ui: ui_quads,
             ui_xf: Xf { scale: us, offset: [0.0, 0.0] },
             lighting,
+        }
+    }
+
+    fn overlays(&self) -> Vec<Overlay> {
+        let defs = self.defs();
+        let mut v = vec![Overlay::None];
+        v.extend(defs.env_fields.iter().filter(|(_, f)| f.overlay.is_some()).map(|(id, _)| Overlay::Field(id)));
+        v.push(Overlay::Rooms);
+        v
+    }
+
+    pub fn cycle_overlay(&mut self) {
+        let all = self.overlays();
+        let i = all.iter().position(|o| *o == self.overlay).unwrap_or(0);
+        self.overlay = all[(i + 1) % all.len()];
+    }
+
+    fn overlay_name(&self) -> String {
+        match self.overlay {
+            Overlay::None => "off".into(),
+            Overlay::Field(f) => self.defs().env_fields[f].label.clone(),
+            Overlay::Rooms => "Rooms".into(),
         }
     }
 
@@ -609,6 +663,26 @@ impl Game {
         }
         if c.designation != Designation::None {
             lines.push(format!("Designated: {:?}", c.designation));
+        }
+        if c.roof {
+            lines.push("Roofed".into());
+        }
+        // Environment at the cell (fields with an overlay range are the interesting ones).
+        if map.in_bounds(p) && c.solid.is_none() {
+            let env = w.res::<Env>();
+            let parts: Vec<String> = defs
+                .env_fields
+                .iter()
+                .filter(|(_, f)| f.overlay.is_some())
+                .map(|(id, f)| format!("{} {}", f.label, f.format(env.get(id, map.idx(p)))))
+                .collect();
+            lines.push(parts.join(", "));
+            if let Some(r) = w.res::<Rooms>().indoor_room_at(&map, p) {
+                let role = r.role.map(|x| defs.room_roles[x].label.clone()).unwrap_or_else(|| "Room".into());
+                lines.push(format!("{role}: {} cells, impressiveness {:.0}", r.cells.len(), r.impressiveness));
+            } else {
+                lines.push("Outdoors".into());
+            }
         }
         if self.show_debug {
             lines.push(format!("{p} walk={} roof={}", map.is_walkable(p), map.is_roofed(p)));
@@ -650,9 +724,8 @@ impl Game {
     fn top_bar(&mut self, ui: &mut Ui, sw: f32) {
         ui.panel(0.0, 0.0, sw, 17.0);
         let clock = self.sim.clock();
-        let night = if clock.is_night() { " (night)" } else { "" };
-        ui.text(5.0, 5.0, &format!("{}{}", clock.time_string(), night), theme::TEXT);
-        let mut x = 150.0;
+        ui.text(5.0, 5.0, &format!("{}, {}", clock.season_name(), clock.time_string()), theme::TEXT);
+        let mut x = 160.0;
         let labels = ["||", ">", ">>", ">>>", "!!!"];
         for (i, l) in labels.iter().enumerate() {
             let active = if i == 0 { self.paused } else { !self.paused && self.speed as usize == i };
@@ -683,6 +756,16 @@ impl Game {
         ui.text(x + 17.0, 5.0, &format!("View {}", dirs[self.cam.angle as usize]), theme::TEXT);
         if ui.button(x + 64.0, 2.0, 13.0, 13.0, ">", false) {
             self.rotate(1);
+        }
+        // Weather and outdoor temperature.
+        {
+            let defs = self.defs();
+            let ws = self.sim.world.res::<WeatherState>().clone();
+            let amb = sim::env::ambient_values(&defs, &clock, &ws);
+            let weather = ws.current.map(|w| defs.weather[w].label.clone()).unwrap_or_else(|| "Clear".into());
+            let temp = defs.core.field_temperature.map(|t| defs.env_fields[t].format(amb[t.index()])).unwrap_or_default();
+            let s = format!("{weather}  {temp}");
+            ui.text(sw - 150.0 - Ui::text_w(&s), 5.0, &s, theme::TEXT);
         }
         let mut rx = sw - 4.0;
         for (label, id) in [("Debug", 2), ("Load", 1), ("Save", 0)] {
@@ -743,19 +826,21 @@ impl Game {
         let y = sh - 18.0;
         ui.panel(0.0, y - 1.0, sw, 19.0);
         let mut x = 4.0;
-        let tools: [(&str, Tool, &str); 9] = [
+        let tools: [(&str, Tool, &str); 11] = [
             ("Select", Tool::Select, "Select things (Esc)"),
             ("Mine", Tool::Designate(DesignateTool::Mine), "Mine rock at the drag level (M)"),
             ("Dig stairs", Tool::Designate(DesignateTool::DigStairs), "Dig a staircase down"),
             ("Chop", Tool::Designate(DesignateTool::Chop), "Chop trees (C)"),
             ("Harvest", Tool::Designate(DesignateTool::Harvest), "Harvest ripe plants (H)"),
             ("Cancel", Tool::Designate(DesignateTool::Cancel), "Cancel designations and blueprints (X)"),
+            ("Roof", Tool::Designate(DesignateTool::BuildRoof), "Build roofs over an area"),
+            ("No roof", Tool::Designate(DesignateTool::RemoveRoof), "Remove roofs from an area"),
             ("Stockpile", Tool::Stockpile, "Create a stockpile zone (Z)"),
             ("Clear zone", Tool::ClearZone, "Remove zone cells"),
             ("Build", Tool::Select, "Open the build menu (B)"),
         ];
         for (i, (label, tool, tip)) in tools.iter().enumerate() {
-            let is_build = i == 8;
+            let is_build = i == 10;
             let active = if is_build { self.show_build || matches!(self.tool, Tool::Build(_)) } else { self.tool == *tool };
             let w = Ui::text_w(label) + 10.0;
             if ui.hover(x, y + 1.0, w, 14.0) {
@@ -771,7 +856,7 @@ impl Game {
                 self.drag_start = None;
             }
             x += w + 2.0;
-            if i == 5 || i == 7 {
+            if i == 5 || i == 7 || i == 9 {
                 x += 8.0;
             }
         }
@@ -779,6 +864,15 @@ impl Game {
         let w = Ui::text_w("Work") + 10.0;
         if ui.button(x, y + 1.0, w, 14.0, "Work", self.show_work) {
             self.show_work = !self.show_work;
+        }
+        x += w + 2.0;
+        let label = format!("Overlay: {}", self.overlay_name());
+        let w = Ui::text_w(&label) + 10.0;
+        if ui.hover(x, y + 1.0, w, 14.0) {
+            ui.set_tooltip("Cycle environment overlays (O)");
+        }
+        if ui.button(x, y + 1.0, w, 14.0, &label, self.overlay != Overlay::None) {
+            self.cycle_overlay();
         }
         if let Tool::Build(def) = self.tool {
             let defs = self.defs();
@@ -836,6 +930,17 @@ impl Game {
             ui.bar(x + 140.0, y, 60.0, 7.0, f, theme::ACCENT);
         }
         y += 11.0;
+        if let Some(pp) = w.get::<Position>(e).map(|p| p.0) {
+            let map = w.res::<Map>();
+            let env = w.res::<Env>();
+            let temp = defs.core.field_temperature.map(|t| defs.env_fields[t].format(env.get(t, map.idx(pp)))).unwrap_or_default();
+            let place = match w.res::<Rooms>().indoor_room_at(&map, pp) {
+                Some(r) => r.role.map(|x| defs.room_roles[x].label.clone()).unwrap_or_else(|| "Indoors".into()),
+                None => "Outdoors".into(),
+            };
+            ui.text_clip(x + 5.0, y, &format!("{place}, {temp}"), pw - 10.0, theme::DIM);
+            y += 11.0;
+        }
         if let Some(ms) = w.get::<MentalState>(e) {
             ui.text(x + 5.0, y, &format!("BREAK: {}", ms.kind.label()), theme::BAD);
             y += 11.0;

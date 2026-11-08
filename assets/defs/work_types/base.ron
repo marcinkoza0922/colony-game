@@ -5,5 +5,6 @@
     (name: "plants", label: "Plants", skill: Some("botany")),
     (name: "cooking", label: "Cook", skill: Some("cooking")),
     (name: "crafting", label: "Craft", skill: Some("crafting")),
+    (name: "cleaning", label: "Clean"),
     (name: "hauling", label: "Haul"),
 ]
