@@ -12,7 +12,8 @@ use crate::Sim;
 
 /// Gives the colony a sensible set of orders around the landing site:
 /// a stockpile, tree chopping, berry harvesting, a campfire with a cooking
-/// bill, beds, a stonecutter, and some mining if rock is nearby.
+/// bill, beds, a stonecutter, an ashroot field, and some mining if rock is
+/// nearby.
 pub fn basic_orders(sim: &mut Sim) {
     let defs = sim.defs();
     let w = &mut sim.world;
@@ -74,6 +75,14 @@ pub fn basic_orders(sim: &mut Sim) {
         }
     }
     orders::designate(w, &roof, DesignateTool::BuildRoof);
+
+    // A small ashroot field.
+    if let Some(o) = find_flat_site(w, start, 6, 4) {
+        let field: Vec<P3> = (0..4).flat_map(|y| (0..6).map(move |x| o.offset(x, y, 0))).collect();
+        if let Some(z) = orders::create_grow_zone(w, &field) {
+            orders::set_grow_zone(w, z, defs.plants.expect("ashroot"), true);
+        }
+    }
 
     // Mine any solid cells at colony level within range.
     let mine: Vec<P3> = {
@@ -158,6 +167,11 @@ pub fn periodic_orders(sim: &mut Sim) {
             .filter_map(|(e, _)| pos.get(e).map(|p| p.0))
             .filter(|p| p.chebyshev(start) <= 30)
             .collect()
+    };
+    // Growing zones are harvested without designations.
+    let ripe: Vec<P3> = {
+        let map = w.res::<Map>();
+        ripe.into_iter().filter(|p| map.cell(*p).zone.is_none_or(|z| w.res::<crate::resources::Zones>().grow(z).is_none())).collect()
     };
     orders::designate(w, &ripe, DesignateTool::Harvest);
 }

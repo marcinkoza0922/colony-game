@@ -1,4 +1,4 @@
-// Items. Categories: Resource, RawFood, Meal, Manufactured.
+// Items. Categories: Resource, RawFood, Meal, Manufactured, Seed.
 [
     (name: "wood", label: "Wood", sprite: "item_wood"),
     (name: "stone", label: "Stone chunks", sprite: "item_stone",
@@ -11,6 +11,19 @@
     (name: "metal_parts", label: "Metal parts", sprite: "item_parts", category: Manufactured),
     (name: "berries", label: "Duskberries", sprite: "item_berries", category: RawFood,
         nutrition: 0.05, eat_thought: Some("ate_raw_food")),
+    (name: "ashroot", label: "Ashroot", sprite: "item_ashroot", category: RawFood,
+        nutrition: 0.06, eat_thought: Some("ate_raw_food")),
+    (name: "rustwheat", label: "Rustwheat grain", sprite: "item_grain", category: RawFood,
+        nutrition: 0.04, eat_thought: Some("ate_raw_food")),
+    (name: "gloomcap", label: "Gloomcaps", sprite: "item_gloomcap", category: RawFood,
+        nutrition: 0.05, eat_thought: Some("ate_raw_food")),
+    (name: "fiber", label: "Threadflax fiber", sprite: "item_fiber"),
+    // Seeds: one per sown cell; harvests give some back.
+    (name: "duskberry_seeds", label: "Duskberry seeds", sprite: "item_seeds_duskberry", category: Seed),
+    (name: "ashroot_seeds", label: "Ashroot seed tubers", sprite: "item_seeds_ashroot", category: Seed),
+    (name: "rustwheat_seeds", label: "Rustwheat seed", sprite: "item_seeds_rustwheat", category: Seed),
+    (name: "gloomcap_spores", label: "Gloomcap spores", sprite: "item_seeds_gloomcap", category: Seed),
+    (name: "threadflax_seeds", label: "Threadflax seeds", sprite: "item_seeds_threadflax", category: Seed),
     (name: "simple_meal", label: "Simple meal", sprite: "item_meal", category: Meal, stack: 10,
         nutrition: 0.9, eat_thought: Some("ate_cooked_meal")),
 ]

@@ -5,6 +5,7 @@ pub mod components;
 pub mod debug;
 pub mod defs;
 pub mod env;
+pub mod farm;
 pub mod geom;
 pub mod items;
 pub mod jobs;
@@ -35,7 +36,7 @@ use resources::*;
 use rng::SimRng;
 use stats::StatCache;
 
-const SAVE_MAGIC: &[u8; 8] = b"COLONY03";
+const SAVE_MAGIC: &[u8; 8] = b"COLONY04";
 
 pub struct Sim {
     pub world: World,
@@ -111,7 +112,7 @@ fn schedule() -> Schedule {
         .add("needs", pawn_sys::sys_needs)
         .add("mood", pawn_sys::sys_mood)
         .add("breaks", pawn_sys::sys_breaks)
-        .add("plants", pawn_sys::sys_plants)
+        .add("plants", farm::sys_plants)
         .add("jobs", pawn_sys::sys_jobs);
     s
 }
@@ -147,7 +148,7 @@ impl Sim {
         w.insert_resource(generated.map);
         w.insert_resource(SimMeta { seed, start: generated.start });
         for (p, def, growth) in generated.plants {
-            let e = w.spawn((Plant { def, growth }, Position(p)));
+            let e = w.spawn((Plant::new(def, growth), Position(p)));
             w.res_mut::<Map>().cell_mut(p).plant = Some(e);
         }
         for (p, def, n) in generated.items {
@@ -160,7 +161,17 @@ impl Sim {
             pawngen::generate_pawn(w, r, start.offset(i as i32 - 1, 0, 0));
         }
         // Starting supplies.
-        let supplies = [("wood", 80), ("berries", 40), ("simple_meal", 12), ("scrap", 30), ("stone", 20)];
+        let supplies = [
+            ("wood", 80),
+            ("berries", 40),
+            ("simple_meal", 12),
+            ("scrap", 30),
+            ("stone", 20),
+            ("ashroot_seeds", 24),
+            ("rustwheat_seeds", 16),
+            ("threadflax_seeds", 8),
+            ("gloomcap_spores", 8),
+        ];
         for (i, (name, n)) in supplies.iter().enumerate() {
             if let Some(d) = defs.items.find(name) {
                 items::spawn_items(w, d, *n, start.offset(i as i32 - 2, 2, 0));

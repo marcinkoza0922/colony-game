@@ -157,6 +157,14 @@ pub struct Plant {
     pub def: PlantId,
     /// 0..=1
     pub growth: f32,
+    /// 0..=1; the plant dies at 0. Harvest yield scales with it.
+    pub health: f32,
+}
+
+impl Plant {
+    pub fn new(def: PlantId, growth: f32) -> Self {
+        Self { def, growth, health: 1.0 }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

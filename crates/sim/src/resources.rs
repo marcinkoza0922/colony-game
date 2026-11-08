@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use ecs::Entity;
 use serde::{Deserialize, Serialize};
 
-use crate::defs::{Defs, ItemCategory, ItemId};
+use crate::defs::{Defs, ItemCategory, ItemId, PlantId};
 use crate::geom::P3;
 
 pub const TICKS_PER_SECOND: u64 = 30;
@@ -116,6 +116,7 @@ pub struct Stockpile {
     pub allow_raw_food: bool,
     pub allow_meals: bool,
     pub allow_manufactured: bool,
+    pub allow_seeds: bool,
     pub cells: Vec<P3>,
 }
 
@@ -126,19 +127,70 @@ impl Stockpile {
             ItemCategory::RawFood => self.allow_raw_food,
             ItemCategory::Meal => self.allow_meals,
             ItemCategory::Manufactured => self.allow_manufactured,
+            ItemCategory::Seed => self.allow_seeds,
         }
     }
 }
 
+/// A farm plot: colonists sow `crop` on its cells and harvest what grows.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GrowZone {
+    pub id: u16,
+    pub name: String,
+    pub crop: PlantId,
+    /// Sow empty cells (harvesting and clearing happen regardless).
+    pub sow: bool,
+    pub cells: Vec<P3>,
+}
+
+/// Stockpiles and growing zones share one id space; a cell holds one zone.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Zones {
     pub stockpiles: BTreeMap<u16, Stockpile>,
+    pub growing: BTreeMap<u16, GrowZone>,
     pub next_id: u16,
 }
 
 impl Zones {
+    /// The stockpile with this id (`None` for growing zones).
     pub fn get(&self, id: u16) -> Option<&Stockpile> {
         self.stockpiles.get(&id)
+    }
+
+    pub fn grow(&self, id: u16) -> Option<&GrowZone> {
+        self.growing.get(&id)
+    }
+
+    fn alloc(&mut self) -> u16 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    pub fn new_stockpile(&mut self, cells: Vec<P3>) -> u16 {
+        let id = self.alloc();
+        let n = self.stockpiles.len() + 1;
+        self.stockpiles.insert(
+            id,
+            Stockpile {
+                id,
+                name: format!("Stockpile {n}"),
+                allow_resources: true,
+                allow_raw_food: true,
+                allow_meals: true,
+                allow_manufactured: true,
+                allow_seeds: true,
+                cells,
+            },
+        );
+        id
+    }
+
+    pub fn new_grow_zone(&mut self, crop: PlantId, cells: Vec<P3>) -> u16 {
+        let id = self.alloc();
+        let n = self.growing.len() + 1;
+        self.growing.insert(id, GrowZone { id, name: format!("Growing zone {n}"), crop, sow: true, cells });
+        id
     }
 }
 

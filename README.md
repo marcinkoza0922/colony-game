@@ -24,7 +24,7 @@ cargo test --workspace --release         # ECS, sim (determinism, save/load) and
 | Left click / drag | Select, or apply the current tool |
 | Right click, Esc | Back to select / deselect |
 | M, C, H, X | Mine, Chop, Harvest, Cancel tools |
-| Z | Stockpile tool |
+| Z, G | Stockpile, Grow zone tools (click a zone to set its crop or stockpile filters) |
 | B | Build menu (R rotates the blueprint) |
 | Tab | Work priorities |
 | O | Cycle environment overlays (temperature, filth, light, beauty, rooms) |
@@ -69,5 +69,6 @@ cargo run --release -p sim --bin simrun -- --days 3 --every 12 --map-end 2
 cargo run --release -p client -- --shot out.png --orders --ticks 9000 \
     --select 0 --zoom 3 --angle 1 [--viewz 2] [--work] [--build] [--debug] [--mouse X,Y] \
     [--frames 40] \   # run live frames first (animation, particles)
-    [--weather rain] [--overlay temperature|rooms|...] [--walls-down]
+    [--weather rain] [--overlay temperature|rooms|...] [--walls-down] \
+    [--zone]      # select the first growing zone
 ```

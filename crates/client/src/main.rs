@@ -5,7 +5,7 @@
 //! Debug/testing:
 //!   colony --shot out.png [--size 1600x900] [--ticks N] [--orders] [--angle A]
 //!          [--zoom Z] [--viewz Z] [--select I] [--work] [--build] [--debug] [--focus X,Y]
-//!          [--frames N] [--mouse X,Y] [--weather NAME] [--overlay FIELD|rooms]
+//!          [--frames N] [--mouse X,Y] [--weather NAME] [--overlay FIELD|rooms] [--zone]
 
 mod atlas;
 mod font;
@@ -104,6 +104,13 @@ fn apply_debug_args(game: &mut Game, args: &Args) {
             if let Some(p) = game.sim.world.get::<sim::components::Position>(e).map(|p| p.0) {
                 game.focus(p);
             }
+        }
+    }
+    if args.has("--zone") {
+        let z = game.sim.world.res::<sim::resources::Zones>().growing.values().next().map(|g| (g.id, g.cells[0]));
+        if let Some((id, p)) = z {
+            game.selection = Selection::Zone(id);
+            game.focus(p);
         }
     }
     if let Some(f) = args.get("--focus") {

@@ -1,13 +1,80 @@
 // Plants. `wild_density` controls worldgen on fertile ground.
+//
+// Growth per day = rate / grow_days, where rate multiplies every `growth`
+// factor (piecewise-linear curve over an env field at the plant's cell) and,
+// for crops, lerp(1, floor fertility, fertility_weight). Light-hungry crops
+// rest at night, so they take roughly twice `grow_days` of calendar time.
+// `harm` drains health (0..1) per day while a field is out of bounds; health
+// recovers by `heal_per_day` otherwise, and harvest yield scales with it.
+// `crop` makes a plant sowable in growing zones (one `seed` item per cell).
 [
     (name: "ashpine", label: "Ashpine", sprite: "plant_ashpine", tree: true, grow_days: 8.0,
         chop_work: 400.0, chop_yield: [(item: "wood", count: 20)], wild_density: 0.10,
+        growth: [(field: "temperature", curve: [(-6.0, 0.0), (4.0, 1.0)])],
         env: [(field: "beauty", amount: 1.0, radius: 2.0)]),
     (name: "duskberry", label: "Duskberry bush", sprite: "plant_duskberry", grow_days: 5.0,
         chop_work: 100.0,
-        harvest: Some((yields: [(item: "berries", count: 10)], work: 150.0, regrow_to: 0.35)),
+        harvest: Some((yields: [(item: "berries", count: 10), (item: "duskberry_seeds", count: 1)],
+            work: 150.0, regrow_to: 0.35)),
+        crop: Some((seed: "duskberry_seeds", sow_work: 70.0, min_fertility: 0.5)),
+        growth: [(field: "temperature", curve: [(0.0, 0.0), (8.0, 1.0), (30.0, 1.0), (40.0, 0.0)])],
         wild_density: 0.035,
         env: [(field: "beauty", amount: 0.6, radius: 1.0)]),
     (name: "scrubgrass", label: "Scrubgrass", sprite: "plant_scrub", grow_days: 2.0, wild_density: 0.22,
+        growth: [(field: "temperature", curve: [(-4.0, 0.0), (4.0, 1.0)])],
         env: [(field: "beauty", amount: 0.2)]),
+
+    // ---- crops
+    // Fast, hardy staple: modest yield, shrugs off light frost.
+    (name: "ashroot", label: "Ashroot", sprite: "plant_ashroot", grow_days: 3.5,
+        harvest: Some((yields: [(item: "ashroot", count: 6), (item: "ashroot_seeds", count: 2)],
+            work: 90.0, remove: true)),
+        crop: Some((seed: "ashroot_seeds", sow_work: 50.0, min_fertility: 0.4)),
+        growth: [
+            (field: "temperature", curve: [(0.0, 0.0), (8.0, 1.0), (32.0, 1.0), (40.0, 0.0)]),
+            (field: "light", curve: [(0.05, 0.0), (0.45, 1.0)]),
+        ],
+        harm: [
+            (field: "temperature", below: Some(-4.0), per_day: 0.6, label: "frost"),
+            (field: "temperature", above: Some(44.0), per_day: 1.0, label: "heat"),
+        ]),
+    // Slow grain with a big yield; wants good soil and warmth, frost-tender.
+    (name: "rustwheat", label: "Rustwheat", sprite: "plant_rustwheat", grow_days: 6.5,
+        harvest: Some((yields: [(item: "rustwheat", count: 16), (item: "rustwheat_seeds", count: 2)],
+            work: 140.0, remove: true)),
+        crop: Some((seed: "rustwheat_seeds", sow_work: 50.0, min_fertility: 0.7, fertility_weight: 1.2)),
+        growth: [
+            (field: "temperature", curve: [(4.0, 0.0), (14.0, 1.0), (30.0, 1.0), (38.0, 0.0)]),
+            (field: "light", curve: [(0.1, 0.0), (0.6, 1.0)]),
+        ],
+        harm: [
+            (field: "temperature", below: Some(0.0), per_day: 1.0, label: "frost"),
+            (field: "temperature", above: Some(42.0), per_day: 1.0, label: "heat"),
+        ]),
+    // Cave fungus: grows only in the dark, on any floor (even bare rock).
+    (name: "gloomcap", label: "Gloomcap", sprite: "plant_gloomcap", grow_days: 4.0,
+        harvest: Some((yields: [(item: "gloomcap", count: 6), (item: "gloomcap_spores", count: 2)],
+            work: 80.0, remove: true)),
+        crop: Some((seed: "gloomcap_spores", sow_work: 40.0, min_fertility: 0.0, fertility_weight: 0.0)),
+        growth: [
+            (field: "temperature", curve: [(0.0, 0.0), (6.0, 1.0), (26.0, 1.0), (34.0, 0.0)]),
+            (field: "light", curve: [(0.15, 1.0), (0.5, 0.0)]),
+        ],
+        harm: [
+            (field: "light", above: Some(0.7), per_day: 0.5, label: "sunlight"),
+            (field: "temperature", below: Some(-2.0), per_day: 0.8, label: "frost"),
+        ]),
+    // Fiber crop for cloth (later).
+    (name: "threadflax", label: "Threadflax", sprite: "plant_threadflax", grow_days: 5.0,
+        harvest: Some((yields: [(item: "fiber", count: 8), (item: "threadflax_seeds", count: 2)],
+            work: 110.0, remove: true)),
+        crop: Some((seed: "threadflax_seeds", sow_work: 50.0, min_fertility: 0.5)),
+        growth: [
+            (field: "temperature", curve: [(2.0, 0.0), (10.0, 1.0), (30.0, 1.0), (38.0, 0.0)]),
+            (field: "light", curve: [(0.05, 0.0), (0.5, 1.0)]),
+        ],
+        harm: [
+            (field: "temperature", below: Some(-2.0), per_day: 0.8, label: "frost"),
+            (field: "temperature", above: Some(42.0), per_day: 1.0, label: "heat"),
+        ]),
 ]

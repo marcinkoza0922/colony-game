@@ -359,7 +359,7 @@ Deliberately simplified / deferred from the M1 plan:
 - No constructed floors and no "build stairs up" — vertical travel is natural ramps + dug stairs.
 - No crafting quality yet (the `CraftQuality` stat is not wired).
 - All buildings are 1×1; benches and beds are passable.
-- Stockpile filter toggles exist in the sim but have no UI.
+- Stockpile filter toggles exist in the sim but have no UI (added in M2, §10.1).
 - Normal-map lighting not started (global light tint only).
 
 Debug tooling: `simrun` (headless runner with colony reports and ASCII maps),
@@ -399,10 +399,71 @@ Decided 2026-11-08. Focus: make the core loop richer before adding big new
 systems (power/mana, automation, combat come after).
 
 ### 10.1 Farming — growing zones
-Paint a growing zone, pick a crop def; colonists sow, tend and harvest
-automatically (Plants work type). Soil fertility (terrain def) scales growth.
-Several crops with different growth times and yields; light and temperature
-affect growth once those systems exist.
+Decided 2026-11-08 (interview). **Status: implemented** (`crates/sim/src/farm.rs`,
+crop/seed defs in `assets/defs/plants` and `items`, tests in `crates/sim/tests/farm.rs`).
+Paint a growing zone, pick a crop; colonists sow, harvest and clear it
+automatically (Plants work type, Botany skill).
+
+- **Seeds are items.** Each crop names a seed item; sowing a cell consumes one.
+  Harvests return some seeds (they are just part of the harvest `yields`), and
+  wild duskberry bushes drop a few berry seeds when harvested. Colonists arrive
+  with a few seed bags. New `Seed` item category (stockpiles accept it), never
+  eaten. A sow job picks up a handful of seeds and sows several nearby cells in
+  one trip; leftovers are dropped and hauled back.
+- **Growth is data-driven through the env fields.** A plant def lists `growth`
+  factors: piecewise-linear curves over any env field (temperature, light, ...),
+  multiplied together with soil fertility. So ordinary crops stop growing in the
+  dark and in the cold, and cave fungus grows *only* in the dark. Seasons act
+  through the climate temperature curve. `grow_days` is time at a 100 % rate;
+  light-hungry crops rest at night, so real time is roughly double.
+- **Plant health.** Plants have health 0..1. `harm` entries (field below / above
+  a threshold, health lost per day) drain it, for example frost or heat. It
+  recovers slowly (`heal_per_day`) when nothing harms it. The plant dies at 0,
+  and harvest yield scales with health. One cold night hurts a field but does not
+  wipe it out; a winter kills unprotected crops.
+- **Fertility.** Terrain defs get a `fertility` multiplier (soil 1.0, grassy soil
+  1.1, rock 0). A crop's `min_fertility` gates where it can be sown, and
+  `fertility_weight` says how much fertility matters (0 for fungus, which grows
+  on bare rock floors). Fertility comes from the solid block under the cell.
+- **Annual vs perennial.** `HarvestDef.remove` removes the plant on harvest
+  (annual crops). Otherwise it regrows to `regrow_to` (bushes).
+- **Zones.** Growing zones share the zone id space with stockpiles (a cell
+  holds one zone). Each has a crop and a *sow* toggle. In a zone, colonists:
+  harvest ripe crops of any kind (no designation needed), cut down foreign
+  plants (wild scrub, a crop the zone no longer wants), and sow empty cells
+  that are fertile enough and free of items and buildings.
+- **UI.** A *Grow zone* tool drags a zone like a stockpile and defaults to the
+  first crop. Clicking an empty zone cell selects the zone: the inspector shows
+  a crop picker (with seed counts), the sow toggle and status. The plant
+  inspector shows growth, health, the current growth rate and what limits it.
+- **First crop set.** *Ashroot* (fast, hardy tuber, modest yield), *Rustwheat*
+  (slow grain, big yield, cold-sensitive), *Gloomcap* (cave fungus that needs
+  darkness and grows on rock, a niche for dwarves underground), *Threadflax*
+  (fiber for later cloth). Duskberry becomes sowable too. Campfire recipes
+  cook each food into simple meals.
+
+Work order within the Plants work type: the nearest of designated chop/harvest,
+zone harvest and zone clearing first; sowing only when none of those is left.
+Colonists won't sow a cell where the crop would currently be harmed (no
+planting into frost).
+
+Implementation notes and first balance pass:
+
+- Plants update every 250 ticks (`farm::sys_plants`); deaths are logged once
+  per plant type and cause ("6 Rustwheat plants died of frost.").
+- Harvested produce and seeds drop on the cell; a cell with an item on it isn't
+  sown until it's hauled away, so farms want a stockpile nearby.
+- A sow job carries up to 6 seeds and sows cells of the same zone within 8
+  cells of the first; a cell that stops needing seed mid-job is skipped.
+- Wild ashpines, scrub and duskberries get temperature growth curves (dormant
+  in winter) but no harm, so the wild ecology survives the year.
+- Measured with `simrun`: an ashroot field sown on day 1 (cold early spring) is
+  ripe around day 9; in summer a cycle takes about 7 days. 24 cells of ashroot
+  feed roughly half of a 3-colonist colony.
+- `simrun` reports each growing zone (planted, growth, health, current rate);
+  `colony --shot ... --zone` selects the first growing zone.
+- Stockpile zones also got an inspector with category filter toggles,
+  including the new `Seed` category.
 
 ### 10.2 New races
 Orcs, Mutants (Wastefolk), Lupine, Ursine, Feline (see §2.3). Each brings its own

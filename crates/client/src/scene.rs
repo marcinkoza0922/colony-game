@@ -31,6 +31,7 @@ pub const C_CHOP: [f32; 4] = [0.95, 0.85, 0.3, 0.9];
 pub const C_HARVEST: [f32; 4] = [0.75, 0.45, 0.95, 0.9];
 pub const C_STAIRS: [f32; 4] = [0.3, 0.85, 0.95, 0.6];
 pub const C_ZONE: [f32; 4] = [0.95, 0.82, 0.35, 0.22];
+pub const C_GROW: [f32; 4] = [0.45, 0.9, 0.35, 0.2];
 pub const C_SELECT: [f32; 4] = [0.95, 0.75, 0.3, 1.0];
 pub const C_ROOF: [f32; 4] = [0.55, 0.75, 1.0, 0.8];
 pub const C_NOROOF: [f32; 4] = [1.0, 0.45, 0.4, 0.8];
@@ -143,7 +144,7 @@ fn tool_for(kind: JobKind) -> Option<&'static str> {
         JobKind::Mine | JobKind::DigStairs => Some("pickaxe"),
         JobKind::Chop => Some("axe"),
         JobKind::Build | JobKind::Craft => Some("hammer"),
-        JobKind::Harvest => Some("sickle"),
+        JobKind::Harvest | JobKind::Cut => Some("sickle"),
         _ => None,
     }
 }
@@ -191,6 +192,7 @@ impl Scene {
     fn rebuild_terrain(&mut self, sim: &Sim, atlas: &Atlas, proj: &Proj, view_z: i32) {
         let defs = sim.defs();
         let map = sim.world.res::<Map>();
+        let zones = sim.world.res::<sim::resources::Zones>();
         let mut out = Vec::with_capacity(40_000);
         let maxz = view_z.min(map.d - 1);
         for z in 0..=maxz {
@@ -226,8 +228,9 @@ impl Scene {
                             let rd = (dir.index() as u32 + proj.angle as u32) % 4;
                             Self::put(&mut out, atlas, atlas.get(&name), 0, rd, 0, at, [d, d, d, 1.0], key(depth, z, 0), Some(Lit::at(&map, p, 0.4)));
                         }
-                        if c.zone.is_some() {
-                            Self::put_rect(&mut out, atlas, atlas.diamond, at, C_ZONE, key(depth, z, 1));
+                        if let Some(zid) = c.zone {
+                            let col = if zones.grow(zid).is_some() { C_GROW } else { C_ZONE };
+                            Self::put_rect(&mut out, atlas, atlas.diamond, at, col, key(depth, z, 1));
                         }
                         let dc = match c.designation {
                             Designation::Chop => Some(C_CHOP),
@@ -418,8 +421,8 @@ impl Scene {
             let work_at = work_target.and_then(|t| {
                 use sim::jobs::WorkTarget::*;
                 let cell = match t {
-                    Mine(c) | DigStairs(c) | Roof(c, _) | Clean(c) => Some(c),
-                    Chop(x) | Harvest(x) | Build(x) | Craft { bench: x, .. } => pos.get(x).map(|p| p.0),
+                    Mine(c) | DigStairs(c) | Roof(c, _) | Clean(c) | Sow(c, _) => Some(c),
+                    Chop(x) | Harvest(x) | Cut(x) | Build(x) | Craft { bench: x, .. } => pos.get(x).map(|p| p.0),
                 };
                 cell.map(|c| {
                     let (cx, cy) = proj.cell_center(c.x, c.y, c.z);

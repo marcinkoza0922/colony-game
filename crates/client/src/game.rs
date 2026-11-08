@@ -31,6 +31,7 @@ pub enum Tool {
     Select,
     Designate(DesignateTool),
     Stockpile,
+    GrowZone,
     ClearZone,
     Build(BuildingId),
 }
@@ -40,6 +41,8 @@ pub enum Selection {
     None,
     Pawn(Entity),
     Thing(Entity),
+    /// A stockpile or growing zone (by id).
+    Zone(u16),
 }
 
 #[derive(Default)]
@@ -339,6 +342,7 @@ impl Game {
                 KeyCode::KeyH => self.tool = Tool::Designate(DesignateTool::Harvest),
                 KeyCode::KeyX => self.tool = Tool::Designate(DesignateTool::Cancel),
                 KeyCode::KeyZ => self.tool = Tool::Stockpile,
+                KeyCode::KeyG => self.tool = Tool::GrowZone,
                 KeyCode::KeyB => self.show_build = !self.show_build,
                 KeyCode::Tab => self.show_work = !self.show_work,
                 KeyCode::KeyO => self.cycle_overlay(),
@@ -424,10 +428,8 @@ impl Game {
         let w = &self.sim.world;
         match self.tool {
             Tool::Designate(t) => orders::designation_valid(w, p, t),
-            Tool::Stockpile => {
-                let m = w.res::<Map>();
-                m.get(p).is_some_and(|c| c.zone.is_none() && c.ramp.is_none()) && m.is_walkable(p)
-            }
+            Tool::Stockpile => orders::stockpile_cell_valid(w, p),
+            Tool::GrowZone => orders::grow_zone_cell_valid(w, p),
             Tool::ClearZone => w.res::<Map>().get(p).is_some_and(|c| c.zone.is_some()),
             Tool::Build(def) => orders::can_place(w, p, def),
             Tool::Select => false,
@@ -439,6 +441,14 @@ impl Game {
         let n = match self.tool {
             Tool::Designate(t) => orders::designate(w, cells, t),
             Tool::Stockpile => orders::create_stockpile(w, cells).map(|_| cells.len()).unwrap_or(0),
+            Tool::GrowZone => match orders::create_grow_zone(w, cells) {
+                Some(id) => {
+                    // Show the crop picker right away.
+                    self.selection = Selection::Zone(id);
+                    cells.len()
+                }
+                None => 0,
+            },
             Tool::ClearZone => {
                 orders::remove_zone_cells(w, cells);
                 cells.len()
@@ -484,7 +494,12 @@ impl Game {
                             Some(h) => {
                                 let map = self.sim.world.res::<Map>();
                                 let c = map.cell(h);
-                                c.building.or(c.item).or(c.plant).map(Selection::Thing).unwrap_or(Selection::None)
+                                c.building
+                                    .or(c.item)
+                                    .or(c.plant)
+                                    .map(Selection::Thing)
+                                    .or(c.zone.map(Selection::Zone))
+                                    .unwrap_or(Selection::None)
                             }
                             None => Selection::None,
                         },
@@ -531,6 +546,13 @@ impl Game {
             && !self.sim.world.is_alive(e)
         {
             self.selection = Selection::None;
+        }
+        if let Selection::Zone(z) = self.selection {
+            let zones = self.sim.world.res::<Zones>();
+            if zones.get(z).is_none() && zones.grow(z).is_none() {
+                drop(zones);
+                self.selection = Selection::None;
+            }
         }
 
         self.ui_scale = if screen.1 >= 1300 { 3.0 } else { 2.0 };
@@ -652,7 +674,16 @@ impl Game {
         if let Some(e) = c.plant
             && let Some(pl) = w.get::<Plant>(e)
         {
-            lines.push(format!("{} ({:.0}% grown)", defs.plants[pl.def].label, pl.growth * 100.0));
+            let hp = if pl.health < 0.995 { format!(", health {:.0}%", pl.health * 100.0) } else { String::new() };
+            lines.push(format!("{} ({:.0}% grown{hp})", defs.plants[pl.def].label, pl.growth * 100.0));
+        }
+        if let Some(z) = c.zone {
+            let zones = w.res::<Zones>();
+            if let Some(g) = zones.grow(z) {
+                lines.push(format!("{}: {}", g.name, defs.plants[g.crop].label));
+            } else if let Some(sp) = zones.get(z) {
+                lines.push(sp.name.clone());
+            }
         }
         if let Some(e) = c.building {
             if let Some(b) = w.get::<Building>(e) {
@@ -703,6 +734,7 @@ impl Game {
         match self.selection {
             Selection::Pawn(e) => self.pawn_panel(ui, e, sw, sh),
             Selection::Thing(e) => self.thing_panel(ui, e, sw),
+            Selection::Zone(z) => self.zone_panel(ui, z, sw),
             Selection::None => {}
         }
         if self.show_work {
@@ -826,7 +858,7 @@ impl Game {
         let y = sh - 18.0;
         ui.panel(0.0, y - 1.0, sw, 19.0);
         let mut x = 4.0;
-        let tools: [(&str, Tool, &str); 11] = [
+        let tools: [(&str, Tool, &str); 12] = [
             ("Select", Tool::Select, "Select things (Esc)"),
             ("Mine", Tool::Designate(DesignateTool::Mine), "Mine rock at the drag level (M)"),
             ("Dig stairs", Tool::Designate(DesignateTool::DigStairs), "Dig a staircase down"),
@@ -836,11 +868,12 @@ impl Game {
             ("Roof", Tool::Designate(DesignateTool::BuildRoof), "Build roofs over an area"),
             ("No roof", Tool::Designate(DesignateTool::RemoveRoof), "Remove roofs from an area"),
             ("Stockpile", Tool::Stockpile, "Create a stockpile zone (Z)"),
+            ("Grow zone", Tool::GrowZone, "Create a growing zone on soil (G)"),
             ("Clear zone", Tool::ClearZone, "Remove zone cells"),
             ("Build", Tool::Select, "Open the build menu (B)"),
         ];
         for (i, (label, tool, tip)) in tools.iter().enumerate() {
-            let is_build = i == 10;
+            let is_build = i == 11;
             let active = if is_build { self.show_build || matches!(self.tool, Tool::Build(_)) } else { self.tool == *tool };
             let w = Ui::text_w(label) + 10.0;
             if ui.hover(x, y + 1.0, w, 14.0) {
@@ -856,7 +889,7 @@ impl Game {
                 self.drag_start = None;
             }
             x += w + 2.0;
-            if i == 5 || i == 7 || i == 9 {
+            if i == 5 || i == 7 || i == 10 {
                 x += 8.0;
             }
         }
@@ -1084,7 +1117,7 @@ impl Game {
         } else if let Some(pl) = w.get::<Plant>(e) {
             let pd = &defs.plants[pl.def];
             title = pd.label.clone();
-            lines.push(format!("Growth: {:.0}%", pl.growth * 100.0));
+            lines.extend(self.plant_lines(e));
             if let Some(h) = &pd.harvest {
                 lines.push(if pl.growth >= h.min_growth { "Ready to harvest".into() } else { "Not ripe".into() });
             }
@@ -1174,6 +1207,139 @@ impl Game {
         }
         if let Some(r) = add {
             orders::add_bill(world, e, r, BillMode::Count(5));
+        }
+    }
+
+    /// Growth, health and what limits growth, for the plant inspector.
+    fn plant_lines(&self, e: Entity) -> Vec<String> {
+        let defs = self.defs();
+        let w = &self.sim.world;
+        let (Some(pl), Some(p)) = (w.get::<Plant>(e), w.get::<Position>(e).map(|p| p.0)) else { return Vec::new() };
+        let pd = &defs.plants[pl.def];
+        let map = w.res::<Map>();
+        let env = w.res::<Env>();
+        let info = sim::farm::growth_info(&defs, &map, &env, pd, p);
+        let mut lines = vec![format!("Growth: {:.0}%", pl.growth * 100.0), format!("Health: {:.0}%", pl.health * 100.0)];
+        if pl.growth < 1.0 {
+            let mut s = format!("Growth rate: {:.0}%", info.rate * 100.0);
+            if let Some((lim, _)) = &info.limit {
+                let what = match lim {
+                    sim::farm::Limit::Field(f) => defs.env_fields[*f].label.to_lowercase(),
+                    sim::farm::Limit::Fertility => "soil".into(),
+                };
+                s.push_str(&format!(" ({what})"));
+            }
+            lines.push(s);
+        }
+        for h in sim::farm::active_harm(&map, &env, pd, p) {
+            let l = if h.label.is_empty() { defs.env_fields[h.field].label.to_lowercase() } else { h.label.clone() };
+            lines.push(format!("Suffering from {l}!"));
+        }
+        lines
+    }
+
+    fn zone_panel(&mut self, ui: &mut Ui, z: u16, sw: f32) {
+        let defs = self.defs();
+        let pw = 210.0;
+        let x = sw - pw - 2.0;
+        let (grow, stock) = {
+            let zones = self.sim.world.res::<Zones>();
+            (zones.grow(z).cloned(), zones.get(z).cloned())
+        };
+        if let Some(sp) = stock {
+            use sim::defs::ItemCategory as C;
+            let cats = [
+                (C::Resource, "Resources", sp.allow_resources),
+                (C::RawFood, "Raw food", sp.allow_raw_food),
+                (C::Meal, "Meals", sp.allow_meals),
+                (C::Manufactured, "Manufactured", sp.allow_manufactured),
+                (C::Seed, "Seeds", sp.allow_seeds),
+            ];
+            let h = 30.0 + 11.0 + cats.len() as f32 * 15.0 + 18.0;
+            let mut y = ui.titled_panel(x, 20.0, pw, h, &sp.name);
+            ui.text(x + 5.0, y, &format!("{} cells. Accepts:", sp.cells.len()), theme::DIM);
+            y += 11.0;
+            let mut toggle = None;
+            for (cat, label, on) in cats {
+                if ui.button(x + 5.0, y, pw - 10.0, 13.0, &format!("[{}] {label}", if on { "x" } else { " " }), on) {
+                    toggle = Some((cat, !on));
+                }
+                y += 15.0;
+            }
+            if ui.button(x + 5.0, y + 2.0, 90.0, 13.0, "Remove zone", false) {
+                orders::remove_zone(&mut self.sim.world, z);
+            }
+            if let Some((cat, on)) = toggle {
+                orders::set_stockpile_filter(&mut self.sim.world, z, cat, on);
+            }
+            return;
+        }
+        let Some(g) = grow else { return };
+        let w = &self.sim.world;
+        let (mut planted, mut ripe) = (0, 0);
+        {
+            let map = w.res::<Map>();
+            let plants = w.read::<Plant>();
+            for p in &g.cells {
+                if let Some(pl) = map.cell(*p).plant.and_then(|e| plants.get(e))
+                    && pl.def == g.crop
+                {
+                    planted += 1;
+                    if sim::farm::is_ripe(&defs, pl) {
+                        ripe += 1;
+                    }
+                }
+            }
+        }
+        let crops: Vec<(sim::defs::PlantId, String, u32, String)> = defs
+            .plants
+            .iter()
+            .filter_map(|(id, pd)| {
+                let c = pd.crop.as_ref()?;
+                let seeds = sim::items::colony_count(w, c.seed);
+                let days = pd.grow_days;
+                Some((id, pd.label.clone(), seeds, format!("{days:.1} growing days, needs soil {:.1}", c.min_fertility)))
+            })
+            .collect();
+        let h = 30.0 + 33.0 + crops.len() as f32 * 15.0 + 12.0;
+        let mut y = ui.titled_panel(x, 20.0, pw, h, &g.name);
+        ui.text(x + 5.0, y, &format!("{} cells, {planted} planted, {ripe} ripe", g.cells.len()), theme::TEXT);
+        y += 11.0;
+        let mut seeds_now = 0;
+        if let Some((_, _, n, _)) = crops.iter().find(|(id, ..)| *id == g.crop) {
+            seeds_now = *n;
+        }
+        ui.text(x + 5.0, y, &format!("Seeds in colony: {seeds_now}"), if seeds_now == 0 { theme::BAD } else { theme::DIM });
+        y += 11.0;
+        ui.text(x + 5.0, y, "Crop:", theme::ACCENT);
+        y += 11.0;
+        let mut pick = None;
+        for (id, label, seeds, tip) in &crops {
+            let active = *id == g.crop;
+            if ui.hover(x + 5.0, y, pw - 10.0, 13.0) {
+                ui.set_tooltip(tip.clone());
+            }
+            if ui.button(x + 5.0, y, pw - 10.0, 13.0, "", active) {
+                pick = Some(*id);
+            }
+            ui.text(x + 9.0, y + 3.0, label, if active { theme::ACCENT } else { theme::TEXT });
+            let s = format!("{seeds} seeds");
+            ui.text(x + pw - 9.0 - Ui::text_w(&s), y + 3.0, &s, if *seeds == 0 { theme::BAD } else { theme::DIM });
+            y += 15.0;
+        }
+        y += 3.0;
+        let sow_label = if g.sow { "Sowing: on" } else { "Sowing: off" };
+        let toggle_sow = ui.button(x + 5.0, y, 90.0, 13.0, sow_label, g.sow);
+        let remove = ui.button(x + 100.0, y, 90.0, 13.0, "Remove zone", false);
+        let world = &mut self.sim.world;
+        if let Some(c) = pick {
+            orders::set_grow_zone(world, z, c, g.sow);
+        }
+        if toggle_sow {
+            orders::set_grow_zone(world, z, g.crop, !g.sow);
+        }
+        if remove {
+            orders::remove_zone(world, z);
         }
     }
 
@@ -1341,6 +1507,54 @@ mod tests {
         let zones = g.sim.world.res::<Zones>();
         assert_eq!(zones.stockpiles.len(), 1);
         assert!(zones.stockpiles.values().next().unwrap().cells.len() >= 5);
+    }
+
+    #[test]
+    fn grow_zone_drag_selects_zone_and_plants_are_inspectable() {
+        let (mut g, a) = setup();
+        let s = start(&g);
+        // Find a 3x3 patch of zoneable cells near the start.
+        let o = (-10..=10)
+            .flat_map(|dy| (-10..=10).map(move |dx| s.offset(dx, dy, 0)))
+            .find(|o| (0..3).all(|y| (0..3).all(|x| orders::grow_zone_cell_valid(&g.sim.world, o.offset(x, y, 0)))))
+            .expect("flat ground");
+        g.focus(o);
+        g.tool = Tool::GrowZone;
+        let (p0, p1) = (o, o.offset(2, 2, 0));
+        let sp = screen_of(&g, p0);
+        frame(&mut g, &a, sp, true, false);
+        let sp = screen_of(&g, p1);
+        frame(&mut g, &a, sp, false, false);
+        let sp = screen_of(&g, p1);
+        frame(&mut g, &a, sp, false, true);
+        let id = {
+            let zones = g.sim.world.res::<Zones>();
+            assert_eq!(zones.growing.len(), 1);
+            *zones.growing.keys().next().unwrap()
+        };
+        assert_eq!(g.selection, Selection::Zone(id));
+        // The zone panel draws; clicking an empty zone cell selects the zone.
+        frame(&mut g, &a, (0.0, 0.0), false, false);
+        g.tool = Tool::Select;
+        g.selection = Selection::None;
+        // Clear the cell so the click hits the zone, not a wild plant.
+        let cell = o.offset(1, 1, 0);
+        let old = g.sim.world.res::<Map>().cell(cell).plant;
+        if let Some(e) = old {
+            sim::jobs::remove_plant(&mut g.sim.world, e);
+        }
+        let sp = screen_of(&g, cell);
+        frame(&mut g, &a, sp, true, false);
+        assert_eq!(g.selection, Selection::Zone(id));
+        // A crop on the cell is selected instead and its panel draws.
+        let crop = g.defs().plants.expect("ashroot");
+        let e = g.sim.world.spawn((Plant::new(crop, 0.4), Position(cell)));
+        g.sim.world.res_mut::<Map>().cell_mut(cell).plant = Some(e);
+        let sp = screen_of(&g, cell);
+        frame(&mut g, &a, sp, true, false);
+        assert_eq!(g.selection, Selection::Thing(e));
+        assert!(g.plant_lines(e).iter().any(|l| l.starts_with("Health")));
+        frame(&mut g, &a, (0.0, 0.0), false, false);
     }
 
     #[test]

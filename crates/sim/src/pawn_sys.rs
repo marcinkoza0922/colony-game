@@ -231,20 +231,6 @@ pub fn sys_stats(world: &mut World) {
     }
 }
 
-const PLANT_INTERVAL: u64 = 250;
-
-pub fn sys_plants(world: &mut World) {
-    if !world.res::<Clock>().tick.is_multiple_of(PLANT_INTERVAL) {
-        return;
-    }
-    let defs = defs(world);
-    let mut plants = world.write::<Plant>();
-    for (_, p) in plants.iter_mut() {
-        let days = defs.plants[p.def].grow_days.max(0.01);
-        p.growth = (p.growth + PLANT_INTERVAL as f32 / (days * TICKS_PER_DAY as f32)).min(1.0);
-    }
-}
-
 /// Unsticks pawns, interrupts jobs for urgent needs, picks new jobs, runs jobs.
 pub fn sys_jobs(world: &mut World) {
     let defs = defs(world);

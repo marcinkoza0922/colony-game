@@ -131,34 +131,30 @@ pub fn deconstruct(world: &mut World, building: Entity) {
     world.despawn(building);
 }
 
+/// Can a zone (of either kind) start on this cell?
+fn zone_cell_free(map: &Map, p: P3) -> bool {
+    map.is_walkable(p) && map.get(p).is_some_and(|c| c.zone.is_none() && c.ramp.is_none())
+}
+
+/// Stockpile tool preview / validity.
+pub fn stockpile_cell_valid(world: &World, p: P3) -> bool {
+    zone_cell_free(&world.res::<Map>(), p)
+}
+
+/// Grow-zone tool preview / validity: a free cell standing on terrain.
+pub fn grow_zone_cell_valid(world: &World, p: P3) -> bool {
+    let map = world.res::<Map>();
+    zone_cell_free(&map, p) && map.get(p.down()).is_some_and(|c| c.solid.is_some())
+}
+
 /// Creates a stockpile over the given cells (cells that are walkable and not
 /// already zoned). Returns the zone id.
 pub fn create_stockpile(world: &mut World, cells: &[P3]) -> Option<u16> {
-    let valid: Vec<P3> = {
-        let map = world.res::<Map>();
-        cells.iter().copied().filter(|p| map.is_walkable(*p) && map.cell(*p).zone.is_none() && map.cell(*p).ramp.is_none()).collect()
-    };
+    let valid: Vec<P3> = cells.iter().copied().filter(|p| stockpile_cell_valid(world, *p)).collect();
     if valid.is_empty() {
         return None;
     }
-    let id = {
-        let mut z = world.res_mut::<Zones>();
-        let id = z.next_id;
-        z.next_id += 1;
-        z.stockpiles.insert(
-            id,
-            Stockpile {
-                id,
-                name: format!("Stockpile {}", id + 1),
-                allow_resources: true,
-                allow_raw_food: true,
-                allow_meals: true,
-                allow_manufactured: true,
-                cells: valid.clone(),
-            },
-        );
-        id
-    };
+    let id = world.res_mut::<Zones>().new_stockpile(valid.clone());
     let mut map = world.res_mut::<Map>();
     for p in valid {
         map.cell_mut(p).zone = Some(id);
@@ -166,18 +162,81 @@ pub fn create_stockpile(world: &mut World, cells: &[P3]) -> Option<u16> {
     Some(id)
 }
 
+/// Creates a growing zone. The crop defaults to the first sowable plant def
+/// that tolerates the zone's average fertility.
+pub fn create_grow_zone(world: &mut World, cells: &[P3]) -> Option<u16> {
+    let defs = defs(world);
+    let valid: Vec<P3> = cells.iter().copied().filter(|p| grow_zone_cell_valid(world, *p)).collect();
+    if valid.is_empty() {
+        return None;
+    }
+    let fert = {
+        let map = world.res::<Map>();
+        valid.iter().map(|p| crate::farm::fertility_at(&defs, &map, *p)).sum::<f32>() / valid.len() as f32
+    };
+    let crops: Vec<(PlantId, f32)> =
+        defs.plants.iter().filter_map(|(id, pd)| pd.crop.as_ref().map(|c| (id, c.min_fertility))).collect();
+    let crop = crops.iter().find(|(_, m)| fert >= *m).or(crops.first()).map(|(id, _)| *id)?;
+    let id = world.res_mut::<Zones>().new_grow_zone(crop, valid.clone());
+    let mut map = world.res_mut::<Map>();
+    for p in valid {
+        map.cell_mut(p).zone = Some(id);
+    }
+    Some(id)
+}
+
+/// Changes a growing zone's crop and sow toggle.
+pub fn set_grow_zone(world: &mut World, zone: u16, crop: PlantId, sow: bool) {
+    let defs = defs(world);
+    if defs.plants[crop].crop.is_none() {
+        return;
+    }
+    if let Some(z) = world.res_mut::<Zones>().growing.get_mut(&zone) {
+        z.crop = crop;
+        z.sow = sow;
+    }
+}
+
+/// Toggles which item categories a stockpile accepts.
+pub fn set_stockpile_filter(world: &mut World, zone: u16, cat: ItemCategory, allow: bool) {
+    if let Some(sp) = world.res_mut::<Zones>().stockpiles.get_mut(&zone) {
+        match cat {
+            ItemCategory::Resource => sp.allow_resources = allow,
+            ItemCategory::RawFood => sp.allow_raw_food = allow,
+            ItemCategory::Meal => sp.allow_meals = allow,
+            ItemCategory::Manufactured => sp.allow_manufactured = allow,
+            ItemCategory::Seed => sp.allow_seeds = allow,
+        }
+    }
+}
+
+/// Removes cells from whatever zone they are in; empty zones are deleted.
 pub fn remove_zone_cells(world: &mut World, cells: &[P3]) {
     let mut zones = world.res_mut::<Zones>();
     let mut map = world.res_mut::<Map>();
     for &p in cells {
         let Some(c) = map.get_mut(p) else { continue };
-        if let Some(z) = c.zone.take()
-            && let Some(sp) = zones.stockpiles.get_mut(&z)
-        {
+        let Some(z) = c.zone.take() else { continue };
+        if let Some(sp) = zones.stockpiles.get_mut(&z) {
             sp.cells.retain(|q| *q != p);
+        }
+        if let Some(g) = zones.growing.get_mut(&z) {
+            g.cells.retain(|q| *q != p);
         }
     }
     zones.stockpiles.retain(|_, s| !s.cells.is_empty());
+    zones.growing.retain(|_, g| !g.cells.is_empty());
+}
+
+/// Deletes a whole zone.
+pub fn remove_zone(world: &mut World, zone: u16) {
+    let cells = {
+        let z = world.res::<Zones>();
+        z.stockpiles.get(&zone).map(|s| s.cells.clone()).or_else(|| z.grow(zone).map(|g| g.cells.clone()))
+    };
+    if let Some(cells) = cells {
+        remove_zone_cells(world, &cells);
+    }
 }
 
 pub fn add_bill(world: &mut World, bench: Entity, recipe: RecipeId, mode: BillMode) -> bool {

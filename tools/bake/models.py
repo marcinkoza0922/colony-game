@@ -219,6 +219,86 @@ def scrub(_frame, variant):
              rot=(rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), 0))
 
 
+# ------------------------------------------------------------------ crops
+# Stages: young (< 50 %), grown (base sprite), ripe (ready to harvest).
+
+def _soil_mound(rng, r=0.16):
+    cyl(r, 0.04, (rng.uniform(-0.03, 0.03), rng.uniform(-0.03, 0.03), 0.02), "#5a4434", verts=8)
+
+
+def ashroot(stage):
+    """Low rosette of ash-grey leaves; the pale tuber shoulders show when ripe."""
+    def build(_frame, variant):
+        rng = random.Random(f"ashroot{variant}")
+        s = {"young": 0.55, "grown": 0.9, "ripe": 1.0}[stage]
+        _soil_mound(rng)
+        if stage == "ripe":
+            for _ in range(3):
+                x, y = rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12)
+                ico(0.09, (x, y, 0.06), rng.choice(["#c8b494", "#b8a480"]), scale=(1.2, 1, 0.8))
+        n = 5 if stage == "young" else 8
+        for i in range(n):
+            a = i / n * math.tau + rng.uniform(-0.2, 0.2)
+            h = rng.uniform(0.3, 0.42) * s
+            r = 0.09 * s
+            # Upright, slightly splayed broad leaves (sage green, pale ash midrib).
+            box((0.09 * s, 0.025, h), (math.cos(a) * r, math.sin(a) * r, h * 0.5),
+                rng.choice(["#8aa864", "#7f9a5a", "#96b270"]), rot=(0.35 * math.cos(a + math.pi / 2), 0.35 * math.sin(a + math.pi / 2), a + math.pi / 2))
+    return build
+
+
+def rustwheat(stage):
+    """Clumps of stalks; ripe heads turn rust-orange."""
+    def build(_frame, variant):
+        rng = random.Random(f"wheat{variant}")
+        h0 = {"young": 0.22, "grown": 0.5, "ripe": 0.55}[stage]
+        stalk = "#7a9a48" if stage != "ripe" else "#b07a3a"
+        head = {"young": None, "grown": "#8aa456", "ripe": "#c0602e"}[stage]
+        for _ in range(9 if stage != "young" else 6):
+            x, y = rng.uniform(-0.24, 0.24), rng.uniform(-0.24, 0.24)
+            h = h0 * rng.uniform(0.85, 1.15)
+            tilt = (rng.uniform(-0.15, 0.15), rng.uniform(-0.15, 0.15), 0)
+            cyl(0.018, h, (x, y, h / 2), stalk, verts=4, rot=tilt)
+            if head:
+                cyl(0.04, 0.14, (x + tilt[1] * h * 0.5, y - tilt[0] * h * 0.5, h + 0.04), head, verts=5, rot=tilt)
+    return build
+
+
+def gloomcap(stage):
+    """Cluster of pale violet-grey mushrooms."""
+    def build(_frame, variant):
+        rng = random.Random(f"gloom{variant}")
+        s = {"young": 0.5, "grown": 0.8, "ripe": 1.0}[stage]
+        for i in range(5 if stage != "young" else 3):
+            x, y = rng.uniform(-0.18, 0.18), rng.uniform(-0.18, 0.18)
+            h = rng.uniform(0.1, 0.22) * s
+            r = rng.uniform(0.06, 0.11) * s
+            cyl(r * 0.35, h, (x, y, h / 2), "#c8c0b4", verts=6)
+            cone(r, r * 0.3, r * 0.8, (x, y, h + r * 0.3), rng.choice(["#6a5a78", "#7a6888", "#5a4e6a"]), verts=8)
+            if stage == "ripe":
+                ico(r * 0.25, (x + r * 0.4, y, h + r * 0.5), "#a898c0", subdiv=1)
+    return build
+
+
+def threadflax(stage):
+    """Slender blue-green stems; small pale-blue flowers when grown, seed bolls when ripe."""
+    def build(_frame, variant):
+        rng = random.Random(f"flax{variant}")
+        h0 = {"young": 0.25, "grown": 0.55, "ripe": 0.6}[stage]
+        stem = "#5f8a7a" if stage != "ripe" else "#a09a6a"
+        for _ in range(8 if stage != "young" else 5):
+            x, y = rng.uniform(-0.22, 0.22), rng.uniform(-0.22, 0.22)
+            h = h0 * rng.uniform(0.85, 1.15)
+            tilt = (rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12), 0)
+            cyl(0.014, h, (x, y, h / 2), stem, verts=4, rot=tilt)
+            top = (x + tilt[1] * h * 0.5, y - tilt[0] * h * 0.5, h)
+            if stage == "grown":
+                ico(0.035, top, rng.choice(["#8ab0d8", "#a0c0e0"]), subdiv=1, scale=(1, 1, 0.5))
+            elif stage == "ripe":
+                ico(0.03, top, "#c8b070", subdiv=1)
+    return build
+
+
 # ------------------------------------------------------------------ items
 
 def item_wood(_f, _v):
@@ -279,6 +359,52 @@ def item_meal(_f, _v):
     cyl(0.17, 0.09, (0, 0, 0.045), "#c8b89a", verts=12)
     cyl(0.14, 0.02, (0, 0, 0.095), "#8a5a30", verts=12)
     box((0.03, 0.2, 0.02), (0.08, 0.02, 0.12), "#a0a4a8", rot=(0, 0, 0.5))
+
+
+def item_ashroot(_f, _v):
+    rng = random.Random("ashroot_item")
+    for _ in range(6):
+        r = rng.uniform(0.06, 0.09)
+        ico(r, (rng.uniform(-0.15, 0.15), rng.uniform(-0.15, 0.15), r * 0.8), rng.choice(["#b8a68a", "#a8967a", "#c4b498"]), scale=(1.3, 1, 0.8))
+
+
+def _sack(color="#b09a72", h=0.26, r=0.13):
+    cyl(r, h * 0.8, (0, 0, h * 0.4), color, verts=10)
+    cone(r, r * 0.5, h * 0.2, (0, 0, h * 0.9), color, verts=10)
+    cyl(r * 0.4, 0.05, (0, 0, h + 0.02), "#7a6448", verts=8)
+
+
+def item_grain(_f, _v):
+    _sack()
+    rng = random.Random("grain")
+    for _ in range(10):
+        a, r = rng.uniform(0, math.tau), rng.uniform(0.14, 0.22)
+        box((0.03, 0.03, 0.02), (math.cos(a) * r, math.sin(a) * r, 0.01), rng.choice(["#c0602e", "#a85428"]))
+
+
+def item_gloomcap(_f, _v):
+    rng = random.Random("gloom_item")
+    for _ in range(6):
+        x, y = rng.uniform(-0.15, 0.15), rng.uniform(-0.15, 0.15)
+        cone(0.07, 0.02, 0.06, (x, y, 0.04), rng.choice(["#6a5a78", "#7a6888"]), verts=8, rot=(rng.uniform(-0.5, 0.5), 0, 0))
+
+
+def item_fiber(_f, _v):
+    for (x, z) in [(-0.06, 0.05), (0.06, 0.05), (0.0, 0.13)]:
+        cyl(0.06, 0.5, (x, 0, z), "#d8d0b0", verts=8, rot=(math.pi / 2, 0, 0.4))
+    cyl(0.1, 0.05, (0, 0, 0.09), "#8a6a40", verts=8, rot=(math.pi / 2, 0, 0.4 + math.pi / 2))
+
+
+def item_seeds(color):
+    """A small burlap pouch with a crop-coloured tie and a few spilled seeds."""
+    def build(_f, _v):
+        _sack("#a8946c", h=0.2, r=0.1)
+        cyl(0.045, 0.04, (0, 0, 0.21), color, verts=8)
+        rng = random.Random(color)
+        for _ in range(5):
+            a, r = rng.uniform(0, math.tau), rng.uniform(0.12, 0.18)
+            ico(0.022, (math.cos(a) * r, math.sin(a) * r, 0.02), color, subdiv=1)
+    return build
 
 
 # -------------------------------------------------------------- buildings
@@ -542,10 +668,19 @@ def catalogue():
         dict(name="plant_duskberry_ripe", canvas="object", build=duskberry(False, True), variants=2),
         dict(name="plant_scrub", canvas="object", build=scrub, variants=3),
     ]
+    for crop, fn in [("ashroot", ashroot), ("rustwheat", rustwheat), ("gloomcap", gloomcap), ("threadflax", threadflax)]:
+        jobs.append(dict(name=f"plant_{crop}_young", canvas="object", build=fn("young"), variants=2))
+        jobs.append(dict(name=f"plant_{crop}", canvas="object", build=fn("grown"), variants=2))
+        jobs.append(dict(name=f"plant_{crop}_ripe", canvas="object", build=fn("ripe"), variants=2))
+    for crop, color in [("duskberry", "#7a3b8f"), ("ashroot", "#b8a68a"), ("rustwheat", "#c0602e"),
+                        ("gloomcap", "#7a6888"), ("threadflax", "#8ab0d8")]:
+        jobs.append(dict(name=f"item_seeds_{crop}", canvas="item", build=item_seeds(color)))
     for name, fn in [
         ("item_wood", item_wood), ("item_stone", item_stone), ("item_blocks", item_blocks),
         ("item_ore", item_ore), ("item_scrap", item_scrap), ("item_components", item_components),
         ("item_parts", item_parts), ("item_berries", item_berries), ("item_meal", item_meal),
+        ("item_ashroot", item_ashroot), ("item_grain", item_grain), ("item_gloomcap", item_gloomcap),
+        ("item_fiber", item_fiber),
     ]:
         jobs.append(dict(name=name, canvas="item", build=fn))
     jobs += [

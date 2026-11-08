@@ -288,8 +288,13 @@ pub struct TerrainDef {
     pub drops: Vec<ItemAmount>,
     #[serde(default = "one")]
     pub drop_chance: f32,
+    /// Worldgen grows wild plants on fertile blocks.
     #[serde(default)]
     pub fertile: bool,
+    /// Soil fertility of this block when it is the floor under a cell
+    /// (crop growth multiplier; 0 = barren).
+    #[serde(default)]
+    pub fertility: f32,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -299,6 +304,8 @@ pub enum ItemCategory {
     RawFood,
     Meal,
     Manufactured,
+    /// Sown by farmers; never eaten.
+    Seed,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -330,6 +337,82 @@ pub struct HarvestDef {
     /// Minimum growth for harvest to be possible.
     #[serde(default = "one")]
     pub min_growth: f32,
+    /// The plant is removed on harvest (annual crops) instead of regrowing.
+    #[serde(default)]
+    pub remove: bool,
+}
+
+/// Makes a plant sowable in growing zones.
+#[derive(Deserialize, Clone, Debug)]
+pub struct CropDef {
+    /// Seed item consumed per sown cell.
+    pub seed: ItemId,
+    #[serde(default = "default_sow_work")]
+    pub sow_work: f32,
+    /// Lowest floor fertility the crop can be sown on.
+    #[serde(default = "half")]
+    pub min_fertility: f32,
+    /// How much fertility matters: growth x lerp(1, fertility, weight).
+    #[serde(default = "one")]
+    pub fertility_weight: f32,
+}
+
+fn default_sow_work() -> f32 {
+    60.0
+}
+
+/// Growth multiplier from an environment field at the plant's cell:
+/// piecewise-linear `curve` of (field value, multiplier) points, clamped at
+/// the ends.
+#[derive(Deserialize, Clone, Debug)]
+pub struct GrowthFactor {
+    pub field: EnvFieldId,
+    pub curve: Vec<(f32, f32)>,
+}
+
+impl GrowthFactor {
+    pub fn eval(&self, v: f32) -> f32 {
+        eval_curve(&self.curve, v)
+    }
+}
+
+pub fn eval_curve(curve: &[(f32, f32)], v: f32) -> f32 {
+    let (Some(first), Some(last)) = (curve.first(), curve.last()) else { return 1.0 };
+    if v <= first.0 {
+        return first.1;
+    }
+    if v >= last.0 {
+        return last.1;
+    }
+    for w in curve.windows(2) {
+        let ((x0, y0), (x1, y1)) = (w[0], w[1]);
+        if v <= x1 {
+            let t = if x1 > x0 { (v - x0) / (x1 - x0) } else { 1.0 };
+            return y0 + (y1 - y0) * t;
+        }
+    }
+    last.1
+}
+
+/// Health damage while a field is out of bounds (frost, heat, ...).
+#[derive(Deserialize, Clone, Debug)]
+pub struct PlantHarm {
+    pub field: EnvFieldId,
+    #[serde(default)]
+    pub below: Option<f32>,
+    #[serde(default)]
+    pub above: Option<f32>,
+    /// Health (0..1) lost per day while it applies.
+    pub per_day: f32,
+    /// Shown in the inspector and the death message ("frost").
+    #[serde(default)]
+    pub label: String,
+}
+
+impl PlantHarm {
+    pub fn applies(&self, v: f32) -> bool {
+        self.below.is_some_and(|b| v < b) || self.above.is_some_and(|a| v > a)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -351,6 +434,22 @@ pub struct PlantDef {
     pub wild_density: f32,
     #[serde(default)]
     pub env: Vec<EnvEmit>,
+    /// Sowable in growing zones.
+    #[serde(default)]
+    pub crop: Option<CropDef>,
+    /// Growth-rate multipliers from environment fields.
+    #[serde(default)]
+    pub growth: Vec<GrowthFactor>,
+    /// Conditions that damage the plant's health.
+    #[serde(default)]
+    pub harm: Vec<PlantHarm>,
+    /// Health regained per day while unharmed.
+    #[serde(default = "default_heal")]
+    pub heal_per_day: f32,
+}
+
+fn default_heal() -> f32 {
+    0.3
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

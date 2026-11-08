@@ -43,6 +43,8 @@ pub enum JobKind {
     DigStairs,
     Chop,
     Harvest,
+    Sow,
+    Cut,
     Haul,
     Deliver,
     Build,
@@ -65,6 +67,8 @@ impl JobKind {
                 | JobKind::DigStairs
                 | JobKind::Chop
                 | JobKind::Harvest
+                | JobKind::Sow
+                | JobKind::Cut
                 | JobKind::Haul
                 | JobKind::Deliver
                 | JobKind::Build
@@ -82,6 +86,8 @@ impl JobKind {
             JobKind::DigStairs => "Digging stairs",
             JobKind::Chop => "Chopping",
             JobKind::Harvest => "Harvesting",
+            JobKind::Sow => "Sowing",
+            JobKind::Cut => "Clearing plants",
             JobKind::Haul => "Hauling",
             JobKind::Deliver => "Delivering materials",
             JobKind::Build => "Building",
@@ -102,6 +108,10 @@ pub enum WorkTarget {
     DigStairs(P3),
     Chop(Entity),
     Harvest(Entity),
+    /// Cut down a plant that does not belong in its growing zone.
+    Cut(Entity),
+    /// Sow a crop on a growing-zone cell using carried seeds.
+    Sow(P3, PlantId),
     Build(Entity),
     Craft { bench: Entity, bill: u32 },
     /// Build (true) or remove (false) the roof over a cell.
@@ -456,7 +466,8 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
         WorkTarget::Harvest(e) => {
             let pl = world.get::<Plant>(e).ok_or("plant gone")?;
             let p = pos_of(world, e).ok_or("plant gone")?;
-            if map.cell(p).designation != Designation::Harvest {
+            let zoned = crate::farm::grow_zone_at(&world.res::<Zones>(), &map, p).is_some();
+            if map.cell(p).designation != Designation::Harvest && !zoned {
                 return Err("designation removed".into());
             }
             let h = defs.plants[pl.def].harvest.as_ref().ok_or("not harvestable")?;
@@ -464,6 +475,23 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
                 return Err("not ripe".into());
             }
             Ok((h.work, core.stat_plant_speed, Some(core.skill_botany)))
+        }
+        WorkTarget::Cut(e) => {
+            let pl = world.get::<Plant>(e).ok_or("plant gone")?;
+            let p = pos_of(world, e).ok_or("plant gone")?;
+            if !crate::farm::is_foreign(&world.res::<Zones>(), &map, &pl, p) {
+                return Err("plant now belongs here".into());
+            }
+            let w = defs.plants[pl.def].chop_work.max(40.0);
+            Ok((w, core.stat_plant_speed, Some(core.skill_botany)))
+        }
+        WorkTarget::Sow(p, crop) => {
+            let want = crate::farm::sow_target(&defs, &world.res::<Zones>(), &map, &world.res::<Env>(), p);
+            if want != Some(crop) {
+                return Err("cell no longer needs sowing".into());
+            }
+            let cd = defs.plants[crop].crop.as_ref().ok_or("not a crop")?;
+            Ok((cd.sow_work, core.stat_plant_speed, Some(core.skill_botany)))
         }
         WorkTarget::Build(bp) => {
             let b = world.get::<Blueprint>(bp).ok_or("blueprint gone")?;
@@ -491,7 +519,8 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
 fn target_cell(world: &World, t: WorkTarget) -> Option<P3> {
     match t {
         WorkTarget::Mine(p) | WorkTarget::DigStairs(p) | WorkTarget::Roof(p, _) | WorkTarget::Clean(p) => Some(p),
-        WorkTarget::Chop(e) | WorkTarget::Harvest(e) | WorkTarget::Build(e) => pos_of(world, e),
+        WorkTarget::Sow(p, _) => Some(p),
+        WorkTarget::Chop(e) | WorkTarget::Harvest(e) | WorkTarget::Cut(e) | WorkTarget::Build(e) => pos_of(world, e),
         WorkTarget::Craft { bench, .. } => pos_of(world, bench),
     }
 }
@@ -527,6 +556,8 @@ pub fn gain_xp(world: &mut World, pawn: Entity, skill: SkillId, amount: f32) {
 fn toil_work(world: &mut World, pawn: Entity, job: &mut Job, target: WorkTarget) -> ToilResult {
     let (total, speed_stat, skill) = match work_params(world, target) {
         Ok(v) => v,
+        // A sow job covers several cells; skip one that stopped needing it.
+        Err(_) if matches!(target, WorkTarget::Sow(..)) => return ToilResult::Next,
         Err(e) => return ToilResult::Fail(e),
     };
     if let (Some(tp), Some(pp)) = (target_cell(world, target), pos_of(world, pawn)) {
@@ -593,7 +624,7 @@ fn complete_work(world: &mut World, pawn: Entity, target: WorkTarget) {
                 drop_terrain_yield(world, &defs, t, p);
             }
         }
-        WorkTarget::Chop(e) => {
+        WorkTarget::Chop(e) | WorkTarget::Cut(e) => {
             let Some(pl) = world.get_cloned::<Plant>(e) else { return };
             let p = pos_of(world, e).unwrap();
             let pd = &defs.plants[pl.def];
@@ -602,19 +633,49 @@ fn complete_work(world: &mut World, pawn: Entity, target: WorkTarget) {
                 items::spawn_items(world, y.item, n, p);
             }
             remove_plant(world, e);
-            world.res_mut::<Map>().cell_mut(p).designation = Designation::None;
+            if matches!(target, WorkTarget::Chop(_)) {
+                world.res_mut::<Map>().cell_mut(p).designation = Designation::None;
+            }
         }
         WorkTarget::Harvest(e) => {
             let Some(pl) = world.get_cloned::<Plant>(e) else { return };
             let p = pos_of(world, e).unwrap();
             let pd = &defs.plants[pl.def];
             if let Some(h) = &pd.harvest {
+                // Yield scales with plant health.
                 for y in &h.yields {
-                    items::spawn_items(world, y.item, y.count, p);
+                    let n = (y.count as f32 * pl.health.clamp(0.0, 1.0)).round() as u32;
+                    if n > 0 {
+                        items::spawn_items(world, y.item, n, p);
+                    }
                 }
-                world.get_mut::<Plant>(e).unwrap().growth = h.regrow_to;
+                if h.remove {
+                    remove_plant(world, e);
+                } else {
+                    world.get_mut::<Plant>(e).unwrap().growth = h.regrow_to;
+                }
             }
             world.res_mut::<Map>().cell_mut(p).designation = Designation::None;
+        }
+        WorkTarget::Sow(p, crop) => {
+            // Use one carried seed.
+            let Some(seed) = defs.plants[crop].crop.as_ref().map(|c| c.seed) else { return };
+            let Some(item) = carried(world, pawn) else { return };
+            let ok = world.get::<Item>(item).is_some_and(|it| it.def == seed && it.count > 0);
+            if !ok {
+                return;
+            }
+            let left = {
+                let mut it = world.get_mut::<Item>(item).unwrap();
+                it.count -= 1;
+                it.count
+            };
+            if left == 0 {
+                world.get_mut::<Inventory>(pawn).unwrap().carrying = None;
+                world.despawn(item);
+            }
+            let e = world.spawn((Plant::new(crop, 0.0), Position(p)));
+            world.res_mut::<Map>().cell_mut(p).plant = Some(e);
         }
         WorkTarget::Build(bp) => {
             let Some(b) = world.get_cloned::<Blueprint>(bp) else { return };

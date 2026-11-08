@@ -7,6 +7,7 @@ use ecs::{Entity, World};
 use crate::components::*;
 use crate::defs::*;
 use crate::geom::{NEIGHBORS8, P3};
+use crate::farm;
 use crate::items;
 use crate::jobs::{Job, JobKind, Toil, WorkTarget};
 use crate::map::{Designation, Map};
@@ -261,9 +262,26 @@ fn mining_job(world: &World, pawn: Entity, pos: P3) -> Option<Job> {
     })
 }
 
+/// Max cells sown in one trip.
+const SOW_BATCH: u32 = 6;
+
+#[derive(Clone, Copy)]
+enum PlantTask {
+    Chop,
+    Harvest,
+    Cut,
+}
+
+/// Plants work: designated chop/harvest and growing-zone harvest/clearing
+/// (nearest first), then sowing.
 fn plant_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
+    tend_job(world, defs, pawn, pos).or_else(|| sow_job(world, defs, pawn, pos))
+}
+
+fn tend_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
     let found = {
         let map = world.res::<Map>();
+        let zones = world.res::<Zones>();
         let plants = world.read::<Plant>();
         let res = world.res::<Reservations>();
         let mut pf = world.res_mut::<Pathfinder>();
@@ -274,27 +292,108 @@ fn plant_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
                 return None;
             }
             let pl = plants.get(e)?;
+            let ripe = farm::is_ripe(defs, pl);
             match c.designation {
-                Designation::Chop => Some((e, p, true)),
-                Designation::Harvest => {
-                    let h = defs.plants[pl.def].harvest.as_ref()?;
-                    (pl.growth >= h.min_growth).then_some((e, p, false))
-                }
-                _ => None,
+                Designation::Chop => return Some((e, p, PlantTask::Chop)),
+                Designation::Harvest if ripe => return Some((e, p, PlantTask::Harvest)),
+                _ => {}
+            }
+            farm::grow_zone_at(&zones, &map, p)?;
+            if ripe {
+                Some((e, p, PlantTask::Harvest))
+            } else if farm::is_foreign(&zones, &map, pl, p) {
+                Some((e, p, PlantTask::Cut))
+            } else {
+                None
             }
         })
         .map(|(r, _)| r)
     };
-    let (plant, ppos, chop) = found?;
+    let (plant, ppos, task) = found?;
     if !reserve(world, pawn, &[ResKey::Entity(plant)]) {
         return None;
     }
-    let (kind, target) = if chop {
-        (JobKind::Chop, WorkTarget::Chop(plant))
-    } else {
-        (JobKind::Harvest, WorkTarget::Harvest(plant))
+    let (kind, target) = match task {
+        PlantTask::Chop => (JobKind::Chop, WorkTarget::Chop(plant)),
+        PlantTask::Harvest => (JobKind::Harvest, WorkTarget::Harvest(plant)),
+        PlantTask::Cut => (JobKind::Cut, WorkTarget::Cut(plant)),
     };
     Some(Job::new(kind, vec![Toil::GoTo(Goal::Near(ppos)), Toil::Work(target)]))
+}
+
+/// Picks up seeds and sows a batch of nearby cells of one growing zone.
+fn sow_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
+    // Crops some zone wants sown, with the seeds available for each.
+    let mut crops: Vec<(PlantId, ItemId, u32)> = Vec::new();
+    for z in world.res::<Zones>().growing.values() {
+        if !z.sow || crops.iter().any(|(c, _, _)| *c == z.crop) {
+            continue;
+        }
+        let Some(cd) = defs.plants[z.crop].crop.as_ref() else { continue };
+        let n = items_available(world, pawn, cd.seed);
+        if n > 0 {
+            crops.push((z.crop, cd.seed, n));
+        }
+    }
+    if crops.is_empty() {
+        return None;
+    }
+    let (first, crop) = {
+        let map = world.res::<Map>();
+        let zones = world.res::<Zones>();
+        let env = world.res::<crate::env::Env>();
+        let res = world.res::<Reservations>();
+        let mut pf = world.res_mut::<Pathfinder>();
+        pf.search(&map, pos, SEARCH_COST, |p| {
+            let crop = farm::sow_target(defs, &zones, &map, &env, p)?;
+            (crops.iter().any(|(c, _, _)| *c == crop) && !res.blocked(ResKey::Cell(p), pawn)).then_some((p, crop))
+        })
+        .map(|(r, _)| r)?
+    };
+    let &(_, seed, avail) = crops.iter().find(|(c, _, _)| *c == crop)?;
+    let want = avail.min(SOW_BATCH);
+    // More cells of the same zone close to the first one.
+    let mut cells = vec![first];
+    {
+        let map = world.res::<Map>();
+        let zones = world.res::<Zones>();
+        let env = world.res::<crate::env::Env>();
+        let res = world.res::<Reservations>();
+        let zone = map.cell(first).zone.and_then(|z| zones.grow(z));
+        let mut more: Vec<P3> = zone
+            .map(|z| z.cells.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| {
+                *p != first
+                    && p.z == first.z
+                    && p.manhattan(first) <= 8
+                    && !res.blocked(ResKey::Cell(*p), pawn)
+                    && farm::sow_target(defs, &zones, &map, &env, *p) == Some(crop)
+            })
+            .collect();
+        more.sort_by_key(|p| (p.manhattan(first), p.y, p.x));
+        cells.extend(more.into_iter().take(want as usize - 1));
+    }
+    let srcs = gather(world, pawn, pos, seed, cells.len() as u32);
+    if srcs.is_empty() {
+        return None;
+    }
+    let mut keys: Vec<ResKey> = srcs.iter().map(|(e, _, _)| ResKey::Entity(*e)).collect();
+    keys.extend(cells.iter().map(|p| ResKey::Cell(*p)));
+    if !reserve(world, pawn, &keys) {
+        return None;
+    }
+    let mut toils = Vec::new();
+    for (e, p, n) in srcs {
+        toils.push(Toil::GoTo(Goal::On(p)));
+        toils.push(Toil::PickUp { item: e, count: n });
+    }
+    for p in cells {
+        toils.push(Toil::GoTo(Goal::Near(p)));
+        toils.push(Toil::Work(WorkTarget::Sow(p, crop)));
+    }
+    Some(Job::new(JobKind::Sow, toils))
 }
 
 /// Nearest stockpile cell (from `from`) that accepts `def` and has room.

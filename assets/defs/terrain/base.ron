@@ -1,7 +1,8 @@
 // Solid terrain blocks. `hardness` scales mining work; `drops` are rolled with `drop_chance`.
+// `fertility` applies when the block is the floor under a cell (crop growth; 0 = barren).
 [
-    (name: "soil", label: "Soil", sprite: "block_soil", hardness: 0.6, fertile: true),
-    (name: "grass", label: "Grassy soil", sprite: "block_grass", hardness: 0.6, fertile: true),
+    (name: "soil", label: "Soil", sprite: "block_soil", hardness: 0.6, fertile: true, fertility: 1.0),
+    (name: "grass", label: "Grassy soil", sprite: "block_grass", hardness: 0.6, fertile: true, fertility: 1.1),
     (name: "granite", label: "Granite", sprite: "block_granite", hardness: 1.4,
         drops: [(item: "stone", count: 4)], drop_chance: 0.75),
     (name: "iron_ore", label: "Iron ore vein", sprite: "block_iron", hardness: 1.8,

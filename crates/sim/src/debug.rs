@@ -181,6 +181,30 @@ pub fn colony_report(world: &World) -> String {
     totals.sort();
     let parts: Vec<String> = totals.iter().map(|(l, n)| format!("{l}: {n}")).collect();
     let _ = writeln!(s, "items: {}", parts.join(", "));
+    // Growing zones: crop, planted, average growth / health, current rate.
+    for g in world.res::<Zones>().growing.values() {
+        let map = world.res::<Map>();
+        let env = world.res::<crate::env::Env>();
+        let plants = world.read::<Plant>();
+        let crop: Vec<&Plant> =
+            g.cells.iter().filter_map(|p| map.cell(*p).plant.and_then(|e| plants.get(e))).filter(|pl| pl.def == g.crop).collect();
+        let n = crop.len().max(1) as f32;
+        let growth = crop.iter().map(|p| p.growth).sum::<f32>() / n;
+        let health = crop.iter().map(|p| p.health).sum::<f32>() / n;
+        let ripe = crop.iter().filter(|p| crate::farm::is_ripe(&defs, p)).count();
+        let rate = crate::farm::growth_info(&defs, &map, &env, &defs.plants[g.crop], g.cells[0]).rate;
+        let _ = writeln!(
+            s,
+            "farm {}: {} {}/{} planted, growth {:.0}%, health {:.0}%, {ripe} ripe, rate now {:.0}%",
+            g.name,
+            defs.plants[g.crop].label,
+            crop.len(),
+            g.cells.len(),
+            growth * 100.0,
+            health * 100.0,
+            rate * 100.0
+        );
+    }
     let _ = writeln!(
         s,
         "entities: {}  plants: {}  buildings: {}  blueprints: {}  reservations: {}",
