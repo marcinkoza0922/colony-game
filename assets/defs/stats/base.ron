@@ -1,0 +1,14 @@
+// value = race base (or default) x (skill_base + skill_per_level * level) + adds, x muls
+[
+    (name: "move_speed", label: "Move speed", default: 3.0, min: 0.5),
+    (name: "work_speed", label: "Work speed", default: 1.0, min: 0.1),
+    (name: "mining_speed", label: "Mining speed", default: 1.0, skill: Some("mining"), skill_base: 0.4, skill_per_level: 0.08, min: 0.1),
+    (name: "construction_speed", label: "Construction speed", default: 1.0, skill: Some("construction"), skill_base: 0.4, skill_per_level: 0.08, min: 0.1),
+    (name: "plant_speed", label: "Plant work speed", default: 1.0, skill: Some("botany"), skill_base: 0.4, skill_per_level: 0.08, min: 0.1),
+    (name: "cooking_speed", label: "Cooking speed", default: 1.0, skill: Some("cooking"), skill_base: 0.4, skill_per_level: 0.08, min: 0.1),
+    (name: "crafting_speed", label: "Crafting speed", default: 1.0, skill: Some("crafting"), skill_base: 0.4, skill_per_level: 0.08, min: 0.1),
+    (name: "learn_rate", label: "Learning rate", default: 1.0, min: 0.1),
+    (name: "break_threshold", label: "Mental break threshold", default: 35.0, min: 5.0, max: Some(80.0)),
+    (name: "hunger_rate", label: "Hunger rate", default: 1.0, min: 0.1),
+    (name: "rest_rate", label: "Rest fall rate", default: 1.0, min: 0.1),
+]

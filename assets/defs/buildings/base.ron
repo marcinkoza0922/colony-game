@@ -1,0 +1,20 @@
+// Buildings. Kinds: Wall, Door, Bed, Workbench, Stairs, Furniture.
+[
+    (name: "wood_wall", label: "Wooden wall", sprite: "bld_wood_wall", kind: Wall,
+        cost: [(item: "wood", count: 5)], work: 150.0),
+    (name: "stone_wall", label: "Stone wall", sprite: "bld_stone_wall", kind: Wall,
+        cost: [(item: "stone_blocks", count: 5)], work: 260.0),
+    (name: "door", label: "Door", sprite: "bld_door", kind: Door,
+        cost: [(item: "wood", count: 5)], work: 200.0),
+    (name: "bed", label: "Bed", sprite: "bld_bed", kind: Bed,
+        cost: [(item: "wood", count: 20)], work: 300.0, sleep_thought: Some("slept_in_bed")),
+    (name: "campfire", label: "Campfire", sprite: "bld_campfire", kind: Workbench,
+        cost: [(item: "wood", count: 10)], work: 100.0,
+        light: Some((radius: 7.0, color: (1.15, 0.7, 0.38), height: 0.4, flicker: 0.25))),
+    (name: "workbench", label: "Tinker's bench", sprite: "bld_workbench", kind: Workbench,
+        cost: [(item: "wood", count: 25), (item: "scrap", count: 10)], work: 400.0,
+        light: Some((radius: 3.0, color: (0.3, 0.9, 0.8), height: 0.7))),
+    (name: "stonecutter", label: "Stonecutter", sprite: "bld_stonecutter", kind: Workbench,
+        cost: [(item: "wood", count: 20)], work: 300.0),
+    (name: "stairs", label: "Stairs", sprite: "bld_stairs", kind: Stairs, buildable: false),
+]

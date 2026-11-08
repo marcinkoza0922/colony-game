@@ -1,0 +1,9 @@
+// Order is the tie-break among equal priorities.
+[
+    (name: "mining", label: "Mine", skill: Some("mining")),
+    (name: "construction", label: "Build", skill: Some("construction")),
+    (name: "plants", label: "Plants", skill: Some("botany")),
+    (name: "cooking", label: "Cook", skill: Some("cooking")),
+    (name: "crafting", label: "Craft", skill: Some("crafting")),
+    (name: "hauling", label: "Haul"),
+]

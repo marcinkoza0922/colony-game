@@ -1,0 +1,10 @@
+// `passive` entries change the need per day while their condition holds.
+[
+    (name: "hunger", label: "Food", role: Some(Food), rate_stat: Some("hunger_rate")),
+    (name: "rest", label: "Rest", role: Some(Rest), rate_stat: Some("rest_rate")),
+    (name: "recreation", label: "Recreation", role: Some(Recreation)),
+    (name: "nature", label: "Nature",
+        passive: [(All([Outdoors, NearPlants(3)]), 2.5), (Underground, -1.0)]),
+    (name: "industry", label: "Industry",
+        passive: [(Working, 3.0)]),
+]

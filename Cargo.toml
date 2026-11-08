@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/ecs", "crates/sim", "crates/client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+ecs = { path = "crates/ecs" }
+sim = { path = "crates/sim" }
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+bincode = { version = "2", features = ["serde"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

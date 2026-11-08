@@ -1,0 +1,13 @@
+// Solid terrain blocks. `hardness` scales mining work; `drops` are rolled with `drop_chance`.
+[
+    (name: "soil", label: "Soil", sprite: "block_soil", hardness: 0.6, fertile: true),
+    (name: "grass", label: "Grassy soil", sprite: "block_grass", hardness: 0.6, fertile: true),
+    (name: "granite", label: "Granite", sprite: "block_granite", hardness: 1.4,
+        drops: [(item: "stone", count: 4)], drop_chance: 0.75),
+    (name: "iron_ore", label: "Iron ore vein", sprite: "block_iron", hardness: 1.8,
+        drops: [(item: "iron_ore", count: 6)]),
+    (name: "salvage", label: "Buried salvage", sprite: "block_salvage", hardness: 1.2,
+        drops: [(item: "scrap", count: 8), (item: "components", count: 1)]),
+    (name: "ruin_wall", label: "Ruined ferrocrete", sprite: "block_ruin", hardness: 1.0,
+        drops: [(item: "scrap", count: 3), (item: "stone", count: 2)]),
+]

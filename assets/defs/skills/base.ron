@@ -1,0 +1,12 @@
+[
+    (name: "mining", label: "Mining"),
+    (name: "construction", label: "Construction"),
+    (name: "botany", label: "Botany"),
+    (name: "cooking", label: "Cooking"),
+    (name: "crafting", label: "Crafting"),
+    (name: "engineering", label: "Engineering"),
+    (name: "arcana", label: "Arcana"),
+    (name: "medicine", label: "Medicine"),
+    (name: "social", label: "Social"),
+    (name: "combat", label: "Combat"),
+]

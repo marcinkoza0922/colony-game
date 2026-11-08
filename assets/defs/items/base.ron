@@ -1,0 +1,14 @@
+// Items. Categories: Resource, RawFood, Meal, Manufactured.
+[
+    (name: "wood", label: "Wood", sprite: "item_wood"),
+    (name: "stone", label: "Stone chunks", sprite: "item_stone"),
+    (name: "stone_blocks", label: "Stone blocks", sprite: "item_blocks", category: Manufactured),
+    (name: "iron_ore", label: "Iron ore", sprite: "item_ore"),
+    (name: "scrap", label: "Scrap metal", sprite: "item_scrap"),
+    (name: "components", label: "Old-world components", sprite: "item_components", stack: 25),
+    (name: "metal_parts", label: "Metal parts", sprite: "item_parts", category: Manufactured),
+    (name: "berries", label: "Duskberries", sprite: "item_berries", category: RawFood,
+        nutrition: 0.05, eat_thought: Some("ate_raw_food")),
+    (name: "simple_meal", label: "Simple meal", sprite: "item_meal", category: Meal, stack: 10,
+        nutrition: 0.9, eat_thought: Some("ate_cooked_meal")),
+]

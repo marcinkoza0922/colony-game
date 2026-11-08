@@ -1,0 +1,58 @@
+// Races. The first three are the starting colonists in Milestone 1.
+// Needs list which needs the race has and their decay per day.
+[
+    (
+        name: "human", label: "Human", sprite: "human",
+        description: "Adaptable survivors who learn quickly and need distraction from the grim world.",
+        needs: [(need: "hunger", decay: 1.6), (need: "rest", decay: 1.0), (need: "recreation", decay: 0.8)],
+        base_stats: [("learn_rate", 1.25)],
+        adult_age: (18, 55),
+        appearance: (
+            skin: ["#f0c8a0", "#d9a066", "#b07a4a", "#8a5a3a", "#5e3c28"],
+            hair: ["#2a2220", "#4a3426", "#7a5230", "#b08a50", "#8a8a88", "#9a3a2a"],
+            top: ["#6b7a8f", "#7a5a3a", "#5a6a4a", "#8a3a3a", "#6a5a7a", "#8a7a5a"],
+            bottom: ["#4e4a42", "#3b3a40", "#5a4a3a", "#3a4a5a"],
+            styles: 3,
+        ),
+        first_names: ["Ada", "Marek", "Juno", "Silas", "Wren", "Tomas", "Ilse", "Cass", "Rook", "Nadia", "Pell", "Vera"],
+        last_names: ["Ashford", "Kowal", "Reyes", "Harrow", "Vance", "Okafor", "Lind", "Mercer"],
+    ),
+    (
+        name: "elf", label: "Elf", sprite: "elf",
+        description: "Long-lived and attuned to living things. They wither underground but need little sleep.",
+        needs: [(need: "hunger", decay: 1.3), (need: "rest", decay: 0.6), (need: "nature", decay: 1.0)],
+        base_stats: [("move_speed", 3.3)],
+        aptitudes: [("botany", 1.5), ("arcana", 1.6), ("mining", 0.6)],
+        skill_bonus: [("botany", 2), ("arcana", 2)],
+        quirk_weights: [("claustrophobic", 2.0), ("tunnel_rat", 0.0)],
+        adult_age: (60, 400),
+        appearance: (
+            skin: ["#f2dcc0", "#e8c9a0", "#d8c8b8", "#c8b0a0"],
+            hair: ["#e6d9a2", "#f0ece0", "#c8a060", "#5a3a2a", "#a8b8c8"],
+            top: ["#4f7a4a", "#3a5a4a", "#6a7a3a", "#5a4a6a", "#7a6a4a"],
+            bottom: ["#3b4a35", "#4a3a2a", "#3a3a4a"],
+            styles: 3,
+        ),
+        first_names: ["Aelith", "Caerwyn", "Ilyndra", "Thalion", "Senna", "Vaelor", "Lirael", "Orin"],
+        last_names: ["of the Ashwood", "Duskwhisper", "Starfall", "Greenmantle"],
+    ),
+    (
+        name: "dwarf", label: "Dwarf", sprite: "dwarf",
+        description: "Stout stone-folk engineers. Restless without work; at home under rock.",
+        needs: [(need: "hunger", decay: 1.8), (need: "rest", decay: 1.0), (need: "industry", decay: 1.2)],
+        base_stats: [("move_speed", 2.6)],
+        aptitudes: [("mining", 1.5), ("crafting", 1.3), ("construction", 1.2), ("engineering", 1.3), ("arcana", 0.7)],
+        skill_bonus: [("mining", 3), ("construction", 1), ("crafting", 1)],
+        quirk_weights: [("claustrophobic", 0.0), ("tunnel_rat", 2.5)],
+        adult_age: (35, 180),
+        appearance: (
+            skin: ["#e0b090", "#c98a5e", "#a87050", "#8a5a40"],
+            hair: ["#a8502a", "#5a3a2a", "#2a2220", "#c8c0b0", "#d08a3a", "#8a8a88"],
+            top: ["#8a6a3a", "#6a4a2a", "#5a5a5a", "#7a3a2a", "#4a5a6a"],
+            bottom: ["#4a3f35", "#3a3530", "#5a4a3a"],
+            styles: 3,
+        ),
+        first_names: ["Brokk", "Hilda", "Durin", "Ketta", "Bofur", "Sigrun", "Torvald", "Agna"],
+        last_names: ["Ironvein", "Deepdelver", "Coalbeard", "Stonehand", "Gearwright"],
+    ),
+]

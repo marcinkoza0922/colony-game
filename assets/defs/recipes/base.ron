@@ -1,0 +1,14 @@
+[
+    (name: "cook_simple_meal", label: "Cook simple meal", bench: "campfire",
+        inputs: [(item: "berries", count: 10)], outputs: [(item: "simple_meal", count: 1)],
+        work: 300.0, skill: "cooking", work_type: "cooking", speed_stat: "cooking_speed"),
+    (name: "cut_stone_blocks", label: "Cut stone blocks", bench: "stonecutter",
+        inputs: [(item: "stone", count: 2)], outputs: [(item: "stone_blocks", count: 5)],
+        work: 250.0, skill: "crafting", work_type: "crafting", speed_stat: "crafting_speed"),
+    (name: "salvage_metal", label: "Salvage metal parts", bench: "workbench",
+        inputs: [(item: "scrap", count: 5)], outputs: [(item: "metal_parts", count: 2)],
+        work: 300.0, skill: "crafting", work_type: "crafting", speed_stat: "crafting_speed"),
+    (name: "assemble_components", label: "Assemble components", bench: "workbench",
+        inputs: [(item: "scrap", count: 6), (item: "metal_parts", count: 2)], outputs: [(item: "components", count: 1)],
+        work: 600.0, skill: "engineering", work_type: "crafting", speed_stat: "crafting_speed"),
+]

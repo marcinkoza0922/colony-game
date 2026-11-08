@@ -1,0 +1,10 @@
+// Plants. `wild_density` controls worldgen on fertile ground.
+[
+    (name: "ashpine", label: "Ashpine", sprite: "plant_ashpine", tree: true, grow_days: 8.0,
+        chop_work: 400.0, chop_yield: [(item: "wood", count: 20)], wild_density: 0.10),
+    (name: "duskberry", label: "Duskberry bush", sprite: "plant_duskberry", grow_days: 5.0,
+        chop_work: 100.0,
+        harvest: Some((yields: [(item: "berries", count: 10)], work: 150.0, regrow_to: 0.35)),
+        wild_density: 0.035),
+    (name: "scrubgrass", label: "Scrubgrass", sprite: "plant_scrub", grow_days: 2.0, wild_density: 0.22),
+]

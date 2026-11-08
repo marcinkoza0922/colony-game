@@ -1,0 +1,40 @@
+// Thoughts. With `when` they are situational; otherwise they are memories lasting `duration_hours`.
+[
+    // Needs
+    (name: "hungry", label: "Hungry", mood: -6.0, when: Some(NeedBelow("hunger", 0.25))),
+    (name: "starving", label: "Starving", mood: -18.0, when: Some(NeedBelow("hunger", 0.05)),
+        stat_mods: [(stat: "work_speed", op: Mul(0.7))]),
+    (name: "tired", label: "Tired", mood: -5.0, when: Some(NeedBelow("rest", 0.25))),
+    (name: "exhausted", label: "Exhausted", mood: -12.0, when: Some(NeedBelow("rest", 0.05)),
+        stat_mods: [(stat: "work_speed", op: Mul(0.8)), (stat: "move_speed", op: Mul(0.8))]),
+    (name: "bored", label: "Bored", mood: -6.0, when: Some(NeedBelow("recreation", 0.2))),
+    (name: "entertained", label: "Entertained", mood: 4.0, when: Some(NeedAbove("recreation", 0.85))),
+    (name: "disconnected", label: "Cut off from nature", mood: -8.0, when: Some(NeedBelow("nature", 0.2))),
+    (name: "in_harmony", label: "In harmony with nature", mood: 6.0, when: Some(NeedAbove("nature", 0.8))),
+    (name: "idle_hands", label: "Idle hands", mood: -8.0, when: Some(NeedBelow("industry", 0.2))),
+    (name: "productive", label: "Productive", mood: 6.0, when: Some(NeedAbove("industry", 0.8))),
+
+    // Race
+    (name: "elf_underground", label: "Smothered by stone", mood: -8.0, when: Some(Underground), requires_race: Some("elf")),
+    (name: "dwarf_stonehall", label: "Safe under stone", mood: 5.0, when: Some(Underground), requires_race: Some("dwarf")),
+
+    // Quirks
+    (name: "cramped", label: "Cramped (claustrophobic)", mood: -10.0, when: Some(Underground), requires_quirk: Some("claustrophobic")),
+    (name: "tunnel_cozy", label: "Cozy tunnels", mood: 4.0, when: Some(Underground), requires_quirk: Some("tunnel_rat")),
+    (name: "optimism", label: "Optimist", mood: 8.0, when: Some(Always), requires_quirk: Some("optimist")),
+    (name: "pessimism", label: "Pessimist", mood: -8.0, when: Some(Always), requires_quirk: Some("pessimist")),
+    (name: "solitude", label: "Peaceful solitude", mood: 5.0, when: Some(Alone), requires_quirk: Some("loner")),
+    (name: "crowded", label: "Crowded", mood: -5.0, when: Some(NearOthers(3)), requires_quirk: Some("loner")),
+    (name: "good_company", label: "Good company", mood: 5.0, when: Some(NearOthers(4)), requires_quirk: Some("sociable")),
+    (name: "lonely", label: "Lonely", mood: -5.0, when: Some(Alone), requires_quirk: Some("sociable")),
+    (name: "wrong_hours", label: "Working the wrong hours", mood: -4.0, when: Some(All([Working, Day])), requires_quirk: Some("night_owl")),
+    (name: "sunshine", label: "Basking in the sun", mood: 5.0, when: Some(All([Day, Outdoors])), requires_quirk: Some("sun_lover")),
+    (name: "gloom", label: "Missing the sun", mood: -5.0, when: Some(Underground), requires_quirk: Some("sun_lover")),
+
+    // Memories
+    (name: "ate_raw_food", label: "Ate raw food", mood: -4.0, duration_hours: 8.0, blocked_by_quirks: ["iron_stomach"]),
+    (name: "ate_cooked_meal", label: "Ate a cooked meal", mood: 3.0, duration_hours: 8.0),
+    (name: "slept_on_ground", label: "Slept on the ground", mood: -4.0, duration_hours: 12.0),
+    (name: "slept_in_bed", label: "Slept in a bed", mood: 2.0, duration_hours: 12.0),
+    (name: "catharsis", label: "Catharsis", mood: 10.0, duration_hours: 24.0),
+]

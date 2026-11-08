@@ -1,0 +1,9 @@
+[package]
+name = "sim"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ecs.workspace = true
+serde.workspace = true
+ron.workspace = true

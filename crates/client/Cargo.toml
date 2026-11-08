@@ -1,0 +1,19 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "colony"
+path = "src/main.rs"
+
+[dependencies]
+ecs.workspace = true
+sim.workspace = true
+serde.workspace = true
+ron.workspace = true
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
