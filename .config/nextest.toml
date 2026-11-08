@@ -1,0 +1,7 @@
+[profile.default]
+failure-output = "final"
+success-output = "never"
+status-level = "fail"
+final-status-level = "fail"
+fail-fast = false
+show-progress = "none"

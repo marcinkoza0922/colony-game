@@ -1,0 +1,27 @@
+{
+  "env": {
+    "CARGO_TERM_COLOR": "never",
+    "CARGO_TERM_PROGRESS_WHEN": "never",
+    "NEXTEST_SHOW_PROGRESS": "none",
+    "RUST_BACKTRACE": "0",
+    "RUST_LIB_BACKTRACE": "0"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo nextest run:*)",
+      "Bash(cargo nextest list:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cargo doc:*)",
+      "Bash(cargo metadata:*)"
+    ],
+    "deny": [
+      "Read(./target/**)",
+      "Read(./saves/**)"
+    ]
+  }
+}
