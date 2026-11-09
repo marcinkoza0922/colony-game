@@ -299,6 +299,24 @@ def threadflax(stage):
     return build
 
 
+def mendleaf(stage):
+    """Broad, waxy green leaves in a low mound; small white flowers when ripe."""
+    def build(_frame, variant):
+        rng = random.Random(f"mend{variant}")
+        _soil_mound(rng)
+        n = {"young": 4, "grown": 7, "ripe": 8}[stage]
+        s = {"young": 0.6, "grown": 1.0, "ripe": 1.05}[stage]
+        for i in range(n):
+            a = i / n * math.tau + rng.uniform(-0.2, 0.2)
+            r = 0.1 * s
+            ico(0.09 * s, (math.cos(a) * r, math.sin(a) * r, 0.08 * s), rng.choice(["#3f8a4a", "#4f9a56", "#357a40"]),
+                subdiv=1, scale=(1.6, 0.7, 0.35))
+        if stage == "ripe":
+            for _ in range(5):
+                ico(0.03, (rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12), 0.18), "#f0f0e0", subdiv=1)
+    return build
+
+
 # ------------------------------------------------------------------ items
 
 def item_wood(_f, _v):
@@ -407,6 +425,28 @@ def item_seeds(color):
     return build
 
 
+def item_herbal_medicine(_f, _v):
+    """Bundled leaves tied with twine."""
+    for i, c in enumerate(["#3f8a4a", "#4f9a56", "#357a40"]):
+        ico(0.07, (-0.06 + i * 0.06, 0, 0.05), c, subdiv=1, scale=(0.8, 1.8, 0.5))
+    box((0.2, 0.025, 0.03), (0, 0.02, 0.07), "#c8b080")
+
+
+def item_med_kit(_f, _v):
+    box((0.3, 0.22, 0.14), (0, 0, 0.07), "#d8d4cc")
+    box((0.06, 0.18, 0.02), (0, 0, 0.145), "#b83030")
+    box((0.18, 0.06, 0.02), (0, 0, 0.145), "#b83030")
+    box((0.1, 0.03, 0.03), (0, 0.12, 0.16), "#5a5a5a")
+
+
+def item_corpse(_f, _v):
+    """A body wrapped in a pale shroud."""
+    cyl(0.14, 0.75, (0, 0, 0.12), "#b8b0a0", verts=8, rot=(math.pi / 2, 0, 0))
+    ico(0.12, (0, 0.4, 0.13), "#a8a090", subdiv=1, scale=(1, 1, 0.9))
+    for y in (-0.2, 0.05, 0.28):
+        cyl(0.145, 0.025, (0, y, 0.12), "#8a7a5a", verts=8, rot=(math.pi / 2, 0, 0))
+
+
 # -------------------------------------------------------------- buildings
 
 def wood_wall(_f, _v):
@@ -511,6 +551,69 @@ def stairs(_f, _v):
         h = LEVEL * (i + 1) / n
         y = -0.5 + (i + 0.5) / n
         two_tone_box((0.9, 1.0 / n, h), (0, y, h / 2), "#a8a8a2", "#7f7f7a")
+
+
+def double_bed(_f, _v):
+    box((0.96, 0.95, 0.18), (0, 0, 0.09), "#6b4f33")
+    box((0.98, 0.08, 0.5), (0, 0.46, 0.25), "#5a4029")
+    box((0.88, 0.84, 0.08), (0, 0, 0.22), "#d8d0c0")
+    box((0.9, 0.55, 0.1), (0, -0.16, 0.25), "#3a5a7a")
+    for x in (-0.22, 0.22):
+        box((0.34, 0.16, 0.08), (x, 0.3, 0.29), "#e8e2d8")
+
+
+def medical_bed(_f, _v):
+    for x in (-0.36, 0.36):
+        for y in (-0.42, 0.42):
+            cyl(0.03, 0.3, (x, y, 0.15), "#a0a4a8", verts=6)
+    box((0.8, 0.95, 0.06), (0, 0, 0.3), "#b0b4b8")
+    box((0.82, 0.06, 0.5), (0, 0.46, 0.3), "#9a9ea2")
+    box((0.72, 0.84, 0.08), (0, 0, 0.37), "#f0f0ec")
+    box((0.74, 0.55, 0.08), (0, -0.16, 0.4), "#7aa0b8")
+    box((0.16, 0.16, 0.03), (0, 0.48, 0.5), "#b83030")
+
+
+def dining_table(_f, _v):
+    table(w=0.9, d=0.9, h=0.5)
+
+
+def chair(_f, _v):
+    box((0.44, 0.44, 0.05), (0, 0, 0.3), "#7a5a3a")
+    for x in (-0.18, 0.18):
+        for y in (-0.18, 0.18):
+            box((0.05, 0.05, 0.28), (x, y, 0.14), "#5a4029")
+    box((0.44, 0.05, 0.4), (0, 0.2, 0.52), "#6b4f33")  # back (north)
+
+
+def dice_table(_f, _v):
+    table(top_color="#3a6a4a", w=0.85, d=0.85, h=0.5)
+    for i, c in enumerate(["#e8e2d8", "#c83a3a"]):
+        box((0.07, 0.07, 0.07), (-0.08 + i * 0.15, 0.05 * i, 0.535), c, rot=(0, 0, 0.4 * i))
+    cyl(0.07, 0.1, (0.25, -0.2, 0.55), "#5a3f2a", verts=8)
+
+
+def chess_table(_f, _v):
+    table(top_color="#6b4f33", w=0.85, d=0.85, h=0.5)
+    for i in range(4):
+        for j in range(4):
+            c = "#e0d8c8" if (i + j) % 2 else "#3a332c"
+            box((0.14, 0.14, 0.01), (-0.21 + i * 0.14, -0.21 + j * 0.14, 0.505), c)
+    for x, y, c in [(-0.21, -0.21, "#e8e2d8"), (0.07, -0.07, "#e8e2d8"), (0.21, 0.21, "#2a2420"), (-0.07, 0.07, "#2a2420")]:
+        cyl(0.03, 0.09, (x, y, 0.55), c, verts=6)
+
+
+def grave(filled):
+    def build(_f, _v):
+        if filled:
+            ico(0.3, (0, -0.05, 0.0), "#5d4636", subdiv=1, scale=(1.1, 1.5, 0.35))
+            box((0.34, 0.1, 0.5), (0, 0.42, 0.25), "#8e949c")
+            box((0.36, 0.12, 0.04), (0, 0.42, 0.51), "#6f747c")
+        else:
+            box((0.7, 0.9, 0.03), (0, 0, 0.0), "#2a2018")
+            for x in (-0.4, 0.4):
+                box((0.1, 0.95, 0.08), (x, 0, 0.04), "#5d4636")
+            ico(0.12, (0.42, -0.42, 0.06), "#5d4636", subdiv=1, scale=(1.4, 1.4, 0.6))
+    return build
 
 
 # ------------------------------------------------------------------ pawns
@@ -668,19 +771,21 @@ def catalogue():
         dict(name="plant_duskberry_ripe", canvas="object", build=duskberry(False, True), variants=2),
         dict(name="plant_scrub", canvas="object", build=scrub, variants=3),
     ]
-    for crop, fn in [("ashroot", ashroot), ("rustwheat", rustwheat), ("gloomcap", gloomcap), ("threadflax", threadflax)]:
+    for crop, fn in [("ashroot", ashroot), ("rustwheat", rustwheat), ("gloomcap", gloomcap), ("threadflax", threadflax),
+                     ("mendleaf", mendleaf)]:
         jobs.append(dict(name=f"plant_{crop}_young", canvas="object", build=fn("young"), variants=2))
         jobs.append(dict(name=f"plant_{crop}", canvas="object", build=fn("grown"), variants=2))
         jobs.append(dict(name=f"plant_{crop}_ripe", canvas="object", build=fn("ripe"), variants=2))
     for crop, color in [("duskberry", "#7a3b8f"), ("ashroot", "#b8a68a"), ("rustwheat", "#c0602e"),
-                        ("gloomcap", "#7a6888"), ("threadflax", "#8ab0d8")]:
+                        ("gloomcap", "#7a6888"), ("threadflax", "#8ab0d8"), ("mendleaf", "#4f9a56")]:
         jobs.append(dict(name=f"item_seeds_{crop}", canvas="item", build=item_seeds(color)))
     for name, fn in [
         ("item_wood", item_wood), ("item_stone", item_stone), ("item_blocks", item_blocks),
         ("item_ore", item_ore), ("item_scrap", item_scrap), ("item_components", item_components),
         ("item_parts", item_parts), ("item_berries", item_berries), ("item_meal", item_meal),
         ("item_ashroot", item_ashroot), ("item_grain", item_grain), ("item_gloomcap", item_gloomcap),
-        ("item_fiber", item_fiber),
+        ("item_fiber", item_fiber), ("item_herbal_medicine", item_herbal_medicine), ("item_med_kit", item_med_kit),
+        ("item_corpse", item_corpse),
     ]:
         jobs.append(dict(name=name, canvas="item", build=fn))
     jobs += [
@@ -696,6 +801,14 @@ def catalogue():
         dict(name="bld_wood_wall_low", canvas="object", build=low_wall("#8b6a45"), outline=False),
         dict(name="bld_stone_wall_low", canvas="object", build=low_wall("#8e949c"), outline=False),
         dict(name="bld_door_low", canvas="object", build=door_low, rotations=4),
+        dict(name="bld_double_bed", canvas="object", build=double_bed, rotations=4),
+        dict(name="bld_medical_bed", canvas="object", build=medical_bed, rotations=4),
+        dict(name="bld_table", canvas="object", build=dining_table),
+        dict(name="bld_chair", canvas="object", build=chair, rotations=4),
+        dict(name="bld_dice_table", canvas="object", build=dice_table),
+        dict(name="bld_chess_table", canvas="object", build=chess_table),
+        dict(name="bld_grave", canvas="object", build=grave(False), rotations=4),
+        dict(name="bld_grave_filled", canvas="object", build=grave(True), rotations=4),
     ]
     for race in RACES:
         for si, style in enumerate(STYLES[race]):

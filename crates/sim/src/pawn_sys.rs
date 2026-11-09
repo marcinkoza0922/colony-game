@@ -23,6 +23,12 @@ fn pawns(world: &World) -> Vec<Entity> {
 }
 
 pub fn add_memory(world: &World, pawn: Entity, thought: ThoughtId) {
+    add_memory_about(world, pawn, thought, None);
+}
+
+/// Adds a memory thought, optionally about someone ("{name}" in the label).
+/// Memories about different people stack separately.
+pub fn add_memory_about(world: &World, pawn: Entity, thought: ThoughtId, about: Option<String>) {
     let defs = defs(world);
     let td = &defs.thoughts[thought];
     if let Some(q) = td.requires_quirk
@@ -37,13 +43,18 @@ pub fn add_memory(world: &World, pawn: Entity, thought: ThoughtId) {
     }
     let ticks = (td.duration_hours.max(0.1) * TICKS_PER_HOUR as f32) as u32;
     if let Some(mut m) = world.get_mut::<Mood>(pawn) {
+        if let Some(same) = m.memories.iter_mut().find(|x| x.thought == thought && about.is_some() && x.about == about) {
+            same.ticks_left = ticks;
+            return;
+        }
         let count = m.memories.iter().filter(|x| x.thought == thought).count() as u32;
         if count < td.stack_limit {
-            m.memories.push(Memory { thought, ticks_left: ticks });
+            m.memories.push(Memory { thought, ticks_left: ticks, about });
         } else if let Some(oldest) =
             m.memories.iter_mut().filter(|x| x.thought == thought).min_by_key(|x| x.ticks_left)
         {
             oldest.ticks_left = ticks;
+            oldest.about = about;
         }
     }
 }
@@ -61,6 +72,7 @@ pub fn sys_positions(world: &mut World) {
         pawns.entities().iter().filter_map(|e| pos.get(*e).map(|p| (*e, p.0))).collect()
     };
     world.res_mut::<PawnPositions>().0 = v;
+    crate::medical::sync_carried(world);
 }
 
 const NEED_INTERVAL: u64 = 30;
@@ -237,13 +249,24 @@ pub fn sys_jobs(world: &mut World) {
     let food = defs.needs.iter().find(|(_, n)| n.role == Some(NeedRole::Food)).map(|(i, _)| i);
     let rest = defs.needs.iter().find(|(_, n)| n.role == Some(NeedRole::Rest)).map(|(i, _)| i);
     for pawn in pawns(world) {
+        if !world.is_alive(pawn) {
+            continue;
+        }
+        // Carried pawns are moved by their carrier.
+        if crate::medical::carrier_of(world, pawn).is_some() {
+            continue;
+        }
         unstick(world, pawn);
         if let Some(job) = world.get_cloned::<CurrentJob>(pawn) {
             let needs = world.get_cloned::<Needs>(pawn).unwrap_or_default();
             let low = |n: Option<NeedId>, t: f32| n.and_then(|n| needs.values.get(n.index())).is_some_and(|v| *v < t);
             let urgent = job.0.kind.is_work() && (low(food, 0.12) || low(rest, 0.06));
-            let breaking = world.has::<MentalState>(pawn) && job.0.kind != JobKind::MentalBreak;
-            if urgent || breaking {
+            let fighting = job.0.kind == JobKind::Fight;
+            let breaking = world.has::<MentalState>(pawn) && job.0.kind != JobKind::MentalBreak && !fighting;
+            let downed = crate::health::is_downed(world, pawn) && job.0.kind != JobKind::Downed;
+            if downed {
+                jobs::interrupt(world, pawn, "downed");
+            } else if urgent || breaking {
                 jobs::interrupt(world, pawn, if urgent { "urgent need" } else { "mental break" });
             }
         }

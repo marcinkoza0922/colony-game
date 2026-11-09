@@ -471,33 +471,187 @@ needs, aptitudes, quirk weights, body plan and sprite parameters. Synthetics wai
 until power and maintenance systems exist.
 
 ### 10.3 Social — opinions & relationships
-- Pairwise **opinions** (−100..100) from interactions (chats, insults, shared
-  meals), quirks (Sociable, Loner, Abrasive...) and **race attitudes** defined in
-  data (e.g. many races distrust Mutants; Lupines bond quickly).
-- Relationship states: friend, rival, lover/partner, with thresholds and events.
-- Social thoughts feed mood ("Chatted with Ada", "Insulted by Brokk",
-  "My rival is nearby"). Social skill affects chat outcomes.
-- Interactions happen opportunistically between nearby colonists and during
-  recreation; shown as speech bubbles.
+Decided 2026-11-08 (interview).
 
-### 10.4 Health — full body model (RimWorld/DF depth)
-- **Body defs** per race: a tree of parts (head › skull › brain, eyes, jaw;
-  torso › heart, lungs, liver, stomach, ribs, spine; arms › hands › fingers;
-  legs › feet; plus tails, wings, horns for races that have them). Each part has
-  HP, coverage (hit chance), tags, and the **capacities** it contributes to
-  (consciousness, moving, manipulation, sight, hearing, breathing, blood
-  pumping, blood filtration, metabolism, talking).
-- **Hediffs** (health conditions) attach to parts or the whole body: injuries
-  (cut, crush, burn, bite, gunshot...), bleeding, infection, illness, scars,
-  missing parts, pain. All data-driven: severity curves, stages, stat/capacity
-  effects, tendability, immunity race, lethality.
-- Pain → pain shock; blood loss; capacities feed stats (moving → move speed,
-  manipulation → work speeds). Death when a vital capacity hits zero.
-- **Medicine:** doctors (Medicine skill) tend wounds and treat illness with
-  medicine items; beds give rest bonuses for recovery. Room for prosthetics
-  (tech) and regrowth (magic) later.
-- M2 has no combat, so injuries come from work accidents, falls, wildlife-less
-  hazards and illness events. The model is built for combat in M5.
+- **Opinions.** Pairwise opinion −100..100, the sum of decaying *opinion
+  memories* ("Chatted", "Insulted me", "Ate together") and standing terms
+  (relationship, race attitude, quirks).
+- **Interactions.** Opportunistic: nearby idle or working colonists roll for an
+  interaction now and then (chat, deep talk, joke, compliment, insult, flirt).
+  The odds and outcome depend on Social skill, quirks and current opinion.
+  Interactions are data-driven defs, shown as a speech-bubble icon, and give
+  Social XP.
+- **Social activities.** Colonists also seek each other out:
+  - *Shared meals:* new Table and Chair. Eating at a table gives a thought, and
+    eating near others gives a chance to chat. New *dining room* room role.
+  - *Social recreation:* during recreation, colonists seek out a friend to chat
+    with, or join a group at a campfire or table.
+  - *Recreation buildings:* two-player game tables (e.g. dice, chess). Playing
+    builds opinion and trains Social.
+  - *Partners:* partners seek each other out, share a bed and get a strong
+    mood boost (kept non-explicit).
+- **Relationships.** Friend and rival come from opinion thresholds, with
+  hysteresis. Romance: flirting can make two colonists lovers, and lovers can
+  become partners. Partners can break up, and jealousy is possible. Data-driven
+  race compatibility and quirks gate romance. **Family:** kin (parent, child,
+  sibling) are generated with the starting colony and give strong standing
+  opinion and bonds. No births yet.
+- **Race attitudes.** Data-driven opinion offsets between races that fade as two
+  colonists get to know each other (shared interactions). Quirks can amplify the
+  offset (e.g. Bigot) or remove it (e.g. Open-minded).
+- **Social fights.** An insult between colonists who dislike each other can
+  escalate into a short fistfight. It deals blunt damage through the health
+  model (§10.4). Fights are non-lethal by default: they stop once a colonist is
+  downed or in heavy pain, and blunt hits never destroy vital organs. A
+  `lethal` data flag removes these safeguards.
+- **Thoughts.** Social thoughts feed mood ("Chatted with Ada", "Insulted by
+  Brokk", "My rival is nearby", "Shared a bed with my partner"). Death and grief
+  are covered in §10.4.
+
+Implementation notes (`crates/sim/src/social.rs`, `defs/interactions`,
+tests in `crates/sim/tests/social.rs`). **Status: implemented.**
+
+- Opinion = Σ decaying opinion memories (same-label memories merge, capped
+  at 5× one event) + relationship standing (partner +30, lover +20,
+  parent/child +25, sibling +15) + race attitude × (1 − familiarity) × quirk
+  `race_bias`. Familiarity grows with every interaction and game.
+- Every colonist rolls an interaction roughly every 1–3 hours when someone is
+  within 5 cells. That is 3× more often while socializing (hanging out, at a
+  game table, eating at a table), and scaled by quirk `chattiness`.
+  Interactions: chat, joke, deep talk, compliment, slight, insult, flirt.
+  Speech bubbles show each interaction's `icon`.
+- Friend at mutual opinion ≥ 30 (kept until < 15). Rival at ≤ −30 (kept until
+  > −15). A successful flirt makes lovers, using compatibility (race
+  `romance`), the recipient's opinion and the initiator's social impact.
+  Lovers with mutual opinion ≥ 50 for 3+ days may commit as partners.
+  Someone already taken only flirts with a colonist they like 30+ more than
+  their partner, and flirts aimed at a taken colonist succeed 20× less often.
+  Partners move into a double bed if either owns one. A soured romance may
+  break up. Winning someone who is taken leaves their old partner jilted
+  ("Cheated on me" −40).
+- Family: the starting colony gets a fourth colonist, a sibling, parent or
+  child of one of the others. They share the race and family name, and their
+  ages are adjusted to fit. (The three founders are different races, so they
+  can't be related.)
+- Insults between colonists who dislike each other (opinion ≤ −10, or rivals)
+  have a 12 % chance of a brawl (×2 at low mood, quirk `fight_chance`). Brawls
+  deal 2–6 blunt damage every 1.5 s; they end when someone is downed, pain
+  > 45 % or after 30 s. An interaction def's `lethal_fights` flag lifts the
+  non-lethal safeguards.
+- Idle colonists of every race sometimes seek company (only humans have a
+  Recreation need). Options: join or start a game at a game table (a lone
+  player gives up after a while), go to a friend, partner or relative, or
+  hang out at a table or campfire.
+- At bedtime, partners who share a bed may have *lovin'* (+10 mood, at most
+  every 12 h).
+
+### 10.4 Health — full body model (RimWorld level)
+Decided 2026-11-08 (interview).
+
+- **Body defs** per race at RimWorld depth (about 30–50 parts): a tree of parts
+  (head › skull › brain, eyes, ears, nose, jaw; torso › heart, lungs, liver,
+  kidneys, stomach, ribs, spine, neck; arms › shoulders › hands › fingers;
+  legs › feet › toes; plus tails, wings or horns for races that have them).
+  Each part has HP, coverage (hit chance within its parent), depth (inside or
+  outside), tags, and the **capacities** it contributes to.
+- **Capacities:** consciousness, moving, manipulation, sight, hearing,
+  breathing, blood pumping, blood filtration, metabolism, talking. They are
+  calculated from part efficiency and conditions, and feed stats (moving →
+  MoveSpeed, manipulation → work speeds, consciousness → everything). A colonist
+  is *downed* when consciousness or moving drops too low. Death comes when a
+  vital capacity reaches zero, from blood loss, or when the brain or heart is
+  destroyed.
+- **Hediffs** (health conditions) attach to a part or to the whole body, all
+  data-driven: injuries (cut, crush, bruise, burn, bite, frostbite...),
+  bleeding, infection, illness, scars, missing parts, pain. Each has severity,
+  stages, effects on stats and capacities, tendability, an immunity race
+  (illnesses), and lethality. Pain → pain shock (downed).
+- **Injury and illness sources in M2:**
+  - Social fights (blunt).
+  - Work accidents: a small chance of cuts, crushes or burns while mining,
+    building or crafting, scaled by skill and quirks (Clumsy). Rare mining
+    cave-ins.
+  - Illness and food poisoning: data-driven diseases (flu, gut worms, wound
+    infection) that race against immunity. Food poisoning from raw or poorly
+    cooked meals. Filth (the cleanliness field) raises the odds.
+  - Environment exposure: hypothermia, heatstroke and frostbite from the
+    temperature field; aether sickness from aether storms.
+- **Medicine.** A *Doctor* work type using the Medicine skill. Doctors tend
+  wounds and illnesses (stopping bleeding, slowing infection, improving the
+  immunity race). Treatment quality comes from skill and the medicine used:
+  none, herbal medicine (from a new crop), or an industrial med kit (crafted).
+  Medical beds boost recovery. Injured or sick colonists rest in bed
+  automatically. *Rescue* carries downed colonists to a bed.
+  **Extensibility:** treatments are data-driven *treatment sources*, so
+  magic-themed healing (healing spells, regeneration salves, mana-infused beds,
+  part regrowth) slots in later without code changes. Surgery and prosthetics
+  come later.
+- **Death.** A dead colonist leaves a *corpse* item that rots over time. Rotting
+  raises filth, and seeing a corpse gives a bad thought. A *graveyard* zone with
+  graves: colonists haul and bury corpses. Grief thoughts for friends, partners
+  and family scale with how close they were.
+- **UI.** A Health tab in the colonist inspector: a capacities list, conditions
+  grouped by body part (severity, bleeding, tended state), total pain, and a
+  **pixel-art body diagram** per body plan that colours each part by damage.
+  Injured colonists get an icon over their sprite. Bleeding drops blood filth.
+- Built so M5 combat reuses the same damage path (damage type → hit part →
+  injury).
+
+Implementation notes (`health.rs`, `medical.rs`, `hazards.rs`, `death.rs`,
+defs `bodies`, `hediffs`, `capacities`, `damage_types`; tests in
+`crates/sim/tests/health.rs`). **Status: implemented.**
+
+- Humanoid body: 50 parts (5 fingers and 5 toes per side). A capacity is the
+  weighted average of its contributing parts' efficiency (HP fraction; 0 if
+  the part or an ancestor is missing), × `critical_for` parts (spine →
+  moving, neck → breathing), + condition offsets + pain × `pain`, ×
+  `depends` on earlier capacities. Capacities feed stats through
+  lerp(1, value, weight).
+- Downed below 30 % consciousness or 15 % moving, or in pain shock (> 80 %).
+  Death: a `kills` part destroyed (brain, heart), a vital capacity at 0, or a
+  condition reaching `lethal_at` (blood loss, infection, flu, hypothermia...).
+- Injury severity is HP lost. Bleeding = Σ bleed × severity of untended
+  wounds (missing parts bleed for 2 days), which feeds blood loss. Healing per
+  day is lerp(1, tended_heal, quality) × medicine heal_mult × stat
+  `injury_heal` × bed rest (1.5 × bed `heal_factor`). Each wound rolls once
+  for infection at 12 h. Tending cuts the chance by up to 85 %, and filth
+  raises it. A healed wound may scar (permanent HP loss, slight pain).
+- Illness: immunity rises (stat `immunity_gain`, faster in bed) while
+  severity rises, slowed by tend quality (`tended_factor`). Once immune,
+  severity falls. Tends on illnesses last 24 h.
+- Exposure is plain data: a hediff `trigger` (condition + field curve) drives
+  hypothermia, heatstroke and aether sickness. Hypothermia's serious stages
+  spawn frostbite on `extremity` parts.
+- Doctor work type (first in the list): rescue downed colonists to a bed
+  (medical beds first), tend patients who are downed or in bed (one session
+  tends every untended condition, using the best medicine available), and
+  feed downed patients. A bleeding doctor with nobody else around tends
+  themselves at 70 % quality. Tend quality = stat `tend_quality` (Medicine
+  skill) × medicine potency × random 0.85–1.15, capped by the medicine's
+  `max_quality`. No medicine: potency 0.5, cap 0.7. Herbal medicine (the
+  *Mendleaf* crop): 0.8 / 0.85. Med kit (workbench: 2 herbal + 4 fiber +
+  1 metal parts): 1.15 / 1.0, heals 15 % faster.
+- Sources: accidents are rolled every 250 work ticks: mining 0.4 %,
+  building 0.3 %, crafting 0.3 % (burns at fire benches), chopping 0.2 %.
+  They are scaled by skill and stat `accident_chance` (Clumsy ×2). Cave-ins:
+  0.06 % per roll when mining under rock, 2–4 crush hits. Random illness:
+  2 %/colonist/day, + filth. Random hits from accidents and fists land on
+  outer parts only; cave-ins can reach organs.
+- Any untended wound or illness sends the colonist to bed (or, with no free
+  bed, to lie down where they are) until a doctor has tended it. Food poisoning: item `poison_chance` (raw food
+  1.2 %, meals 0.4 %) × filth × stat `food_poison_chance` (Iron Stomach 0).
+- Death leaves a *corpse* item (beauty −4; never stockpiled). After 2 days it
+  rots and adds filth. "Saw a corpse" is a situational thought. Graves are a
+  buildable `Grave` building (dug, no materials), not a zone. Hauling buries
+  corpses in empty graves, and filled graves get their own sprite. Grief
+  thoughts depend on the relationship: partner −25, lover −20, kin −18,
+  friend −10, rival +4, anyone else −3.
+- Client: the colonist inspector has Overview, Health and Social tabs. Health
+  shows status, pain, bleeding, the body diagram (hover a part for its HP and
+  conditions), capacities and conditions by part. Social lists each colonist
+  with relation and opinion; hover shows the opinion breakdown. Colonists who
+  are downed, resting or carried are drawn lying down (carried ones on the
+  carrier's shoulders), and a red + marks the bleeding or downed.
 
 ### 10.5 Environment — generic field system
 **Status: implemented** (`crates/sim/src/env.rs`, `assets/defs/env_fields`,

@@ -314,7 +314,9 @@ impl Scene {
             // Walls and doors on the viewed level are drawn cut down so rooms are visible.
             let cut = matches!(bd.kind, sim::defs::BuildingKind::Wall | sim::defs::BuildingKind::Door) && (p.z == view_z || fp.walls_down);
             let low = cut.then(|| atlas.get(&format!("{}_low", bd.sprite))).flatten();
-            let set = low.or_else(|| atlas.get(&bd.sprite));
+            let filled = w.get::<sim::death::Grave>(e).is_some_and(|g| g.occupant.is_some());
+            let filled = filled.then(|| atlas.get(&format!("{}_filled", bd.sprite))).flatten();
+            let set = low.or(filled).or_else(|| atlas.get(&bd.sprite));
             Self::put(&mut dynm, atlas, set, variant_of(p), dir, 0, proj.cell_center(p.x, p.y, p.z), color, key(depth_of(p), p.z, 3), lit);
             if !blue && let Some(l) = &bd.light {
                 let wobble = 0.5 + 0.5 * (fp.time * 9.0 + p.x as f32 * 1.7).sin() * (fp.time * 5.3 + p.y as f32).cos();
@@ -354,11 +356,17 @@ impl Scene {
                 continue;
             }
             let at = proj.project(fx + 0.5, fy + 0.5, fz);
+            // Carried colonists ride on their carrier's shoulders.
+            let carried = sim::medical::carrier_of(w, e).is_some();
+            let at = if carried { (at.0, at.1 - 14.0) } else { at };
             let depth = proj.depth(fx + 0.5, fy + 0.5);
             let facing = facings.get(e).map(|f| f.0).unwrap_or(4) as u32;
             let dir = (facing + 2 * proj.angle as u32) % 8;
             let job = jobs.get(e).map(|j| &j.0);
-            let sleeping = jobs.get(e).is_some_and(|j| j.is_sleeping());
+            // Lying down: asleep, resting in bed, downed or being carried.
+            let sleeping = jobs.get(e).is_some_and(|j| j.is_sleeping() || matches!(j.0.kind, JobKind::Rest | JobKind::Downed))
+                || carried
+                || sim::health::is_downed(w, e);
             let work_target = job.and_then(|j| match j.toils.get(j.step) {
                 Some(Toil::Work(t)) => Some(*t),
                 _ => None,
@@ -422,7 +430,9 @@ impl Scene {
                 use sim::jobs::WorkTarget::*;
                 let cell = match t {
                     Mine(c) | DigStairs(c) | Roof(c, _) | Clean(c) | Sow(c, _) => Some(c),
-                    Chop(x) | Harvest(x) | Cut(x) | Build(x) | Craft { bench: x, .. } => pos.get(x).map(|p| p.0),
+                    Chop(x) | Harvest(x) | Cut(x) | Build(x) | Craft { bench: x, .. } | Tend(x) | Bury(x) => {
+                        pos.get(x).map(|p| p.0)
+                    }
                 };
                 cell.map(|c| {
                     let (cx, cy) = proj.cell_center(c.x, c.y, c.z);

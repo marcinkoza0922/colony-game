@@ -1,7 +1,7 @@
 //! Headless simulation runner for debugging.
 //!
 //! cargo run -p sim --release --bin simrun -- [--seed N] [--days D] [--every H]
-//!     [--no-orders] [--map Z] [--save FILE] [--load FILE]
+//!     [--no-orders] [--map Z] [--save FILE] [--load FILE] [--events]
 
 use std::time::Instant;
 
@@ -39,10 +39,18 @@ fn main() {
     let every = every_h * TICKS_PER_HOUR;
     let t0 = Instant::now();
     let mut done = 0;
+    let mut seen = 0u64;
     while done < total {
         let n = every.min(total - done);
         for i in 0..n {
             sim.tick();
+            if has("--events") && (done + i) % 300 == 0 {
+                let log = sim.world.res::<sim::resources::GameLog>();
+                for e in log.entries.iter().filter(|e| e.tick > seen) {
+                    println!("  ev: d{} {}", e.tick / sim::resources::TICKS_PER_DAY + 1, e.text);
+                }
+                seen = log.entries.last().map_or(seen, |e| e.tick);
+            }
             if (done + i) % 600 == 0 {
                 scenario::ensure_bills(&mut sim);
                 if !has("--no-orders") {

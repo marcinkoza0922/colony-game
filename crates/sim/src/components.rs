@@ -25,6 +25,8 @@ pub struct Needs {
 pub struct Memory {
     pub thought: ThoughtId,
     pub ticks_left: u32,
+    /// Who the thought is about ("Insulted by {name}").
+    pub about: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -224,4 +226,12 @@ pub struct Appearance {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Bed {
     pub owner: Option<Entity>,
+    /// Second sleeper of a double bed (the owner's partner).
+    pub second: Option<Entity>,
+}
+
+impl Bed {
+    pub fn sleeps(&self, e: Entity) -> bool {
+        self.owner == Some(e) || self.second == Some(e)
+    }
 }

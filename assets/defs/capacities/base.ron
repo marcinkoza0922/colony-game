@@ -1,0 +1,22 @@
+// Bodily capacities, 0..1. Computed from body parts (weighted average of the
+// parts that contribute), hediff offsets, pain, and `depends` on earlier
+// capacities. Order matters: a capacity may only depend on earlier ones.
+[
+    (name: "blood_pumping", label: "Blood pumping", vital: true),
+    (name: "breathing", label: "Breathing", vital: true),
+    (name: "blood_filtration", label: "Blood filtration", vital: true),
+    (name: "consciousness", label: "Consciousness", vital: true, downed_below: Some(0.3),
+        depends: [("blood_pumping", 0.3), ("breathing", 0.3), ("blood_filtration", 0.15)],
+        pain: -0.25,
+        stats: [("work_speed", 1.0), ("learn_rate", 0.5)]),
+    (name: "moving", label: "Moving", downed_below: Some(0.15),
+        depends: [("consciousness", 1.0), ("breathing", 0.3), ("blood_pumping", 0.3)],
+        stats: [("move_speed", 1.0)]),
+    (name: "manipulation", label: "Manipulation",
+        depends: [("consciousness", 1.0)],
+        stats: [("work_speed", 0.9)]),
+    (name: "sight", label: "Sight", stats: [("work_speed", 0.3)]),
+    (name: "hearing", label: "Hearing"),
+    (name: "talking", label: "Talking", depends: [("consciousness", 1.0)], stats: [("social_impact", 0.8)]),
+    (name: "metabolism", label: "Metabolism"),
+]

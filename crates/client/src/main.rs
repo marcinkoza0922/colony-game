@@ -13,6 +13,7 @@ mod fx;
 mod game;
 mod gfx;
 mod iso;
+mod pawn_tabs;
 mod scene;
 mod ui;
 
@@ -104,6 +105,23 @@ fn apply_debug_args(game: &mut Game, args: &Args) {
             if let Some(p) = game.sim.world.get::<sim::components::Position>(e).map(|p| p.0) {
                 game.focus(p);
             }
+        }
+    }
+    if let Some(t) = args.num::<u8>("--tab") {
+        game.pawn_tab = t.min(2);
+    }
+    // Debug: wound the selected colonist (bleeding cuts and a bruise).
+    if args.has("--hurt")
+        && let Selection::Pawn(e) = game.selection
+    {
+        let defs = game.sim.defs();
+        for (dt, amount, part) in [("cut", 7.0, "left_arm"), ("cut", 9.0, "right_leg"), ("blunt", 6.0, "head"), ("cut", 8.0, "left_index_finger")] {
+            let body = &defs.bodies[defs.races[game.sim.world.get::<sim::components::Pawn>(e).unwrap().race].body];
+            let info = sim::health::DamageInfo { dtype: defs.damage_types.expect(dt), amount, part: body.part(part), non_lethal: false, surface: false };
+            sim::health::apply_damage(&mut game.sim.world, e, &info);
+        }
+        for _ in 0..600 {
+            game.sim.tick();
         }
     }
     if args.has("--zone") {

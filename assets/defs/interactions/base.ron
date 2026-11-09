@@ -1,0 +1,26 @@
+// Social interactions between nearby colonists. The initiator picks one by
+// weight x opinion_curve(opinion of the recipient) x quirk weights.
+// `opinion` is the recipient's change of heart toward the initiator (scaled by
+// the initiator's social impact); `opinion_initiator` the other way round.
+[
+    (name: "chat", label: "Chatted", icon: "...", weight: 1.0, opinion: 0.6, opinion_initiator: 0.6, memory_days: 3.0, xp: 30.0),
+    (name: "joke", label: "Shared a joke", icon: "ha", weight: 0.35,
+        opinion_curve: [(-40.0, 0.2), (0.0, 1.0)], opinion: 1.2, opinion_initiator: 0.5, memory_days: 3.0),
+    (name: "deep_talk", label: "Deep talk", icon: "~", weight: 0.15,
+        opinion_curve: [(0.0, 0.3), (40.0, 2.0)], opinion: 3.0, opinion_initiator: 3.0, memory_days: 6.0,
+        thought: Some("deep_talk"), thought_initiator: Some("deep_talk"), xp: 60.0),
+    (name: "compliment", label: "Complimented me", icon: "+", weight: 0.15,
+        opinion_curve: [(-20.0, 0.2), (20.0, 1.5)], opinion: 3.0, memory_days: 5.0,
+        quirk_weights: [("kind", 4.0), ("abrasive", 0.2)], thought: Some("complimented")),
+    (name: "slight", label: "Slighted me", icon: "-", weight: 0.1,
+        opinion_curve: [(-60.0, 2.5), (0.0, 0.6), (40.0, 0.1)], opinion: -3.0, opinion_initiator: -1.0, memory_days: 4.0,
+        quirk_weights: [("abrasive", 3.0), ("kind", 0.1), ("bigot", 1.5)], thought: Some("slighted")),
+    (name: "insult", label: "Insulted me", icon: "!", weight: 0.04,
+        opinion_curve: [(-60.0, 6.0), (-15.0, 1.5), (10.0, 0.3), (40.0, 0.0)], opinion: -8.0, opinion_initiator: -2.0, memory_days: 6.0,
+        quirk_weights: [("abrasive", 3.0), ("volatile", 1.5), ("kind", 0.05), ("bigot", 1.5)],
+        thought: Some("insulted"), insult: true, log: "{a} insulted {b}."),
+    (name: "flirt", label: "Flirted", icon: "<3", weight: 0.12,
+        opinion_curve: [(20.0, 0.5), (60.0, 2.0)], quirk_weights: [("romantic", 3.0)], romance: true, xp: 40.0),
+    // Used by partners at bedtime (never picked as a chat: weight 0).
+    (name: "lovin", label: "Lovin'", icon: "<3", weight: 0.0),
+]

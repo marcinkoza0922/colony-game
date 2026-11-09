@@ -223,7 +223,33 @@ impl Fx {
                 Glyph(char, [f32; 4]),
                 Icon(Icon, [f32; 4]),
             }
-            let show = if w.has::<MentalState>(e) {
+            let bob = ((time * 2.5 + e.index() as f32).sin() * 1.5).round();
+            // Speech bubble from a recent social interaction takes priority.
+            if let Some(i) = w.get::<sim::social::Social>(e).and_then(|s| s.bubble.map(|(i, _)| i)) {
+                let id = &defs.interactions[i];
+                let txt = if id.icon.is_empty() { "..." } else { id.icon.as_str() };
+                let tw = txt.chars().count() as f32 * font::ADVANCE;
+                let (bw, bh) = (tw + 5.0, 11.0);
+                let bx = (a.feet.0 + 4.0).round();
+                let by = (a.feet.1 - a.height - 6.0 + bob).round();
+                let white = atlas.white;
+                out.push(Quad::unlit([bx - 1.0, by - 1.0], [bw + 2.0, bh + 2.0], atlas.uv(white), [0.1, 0.1, 0.12, 0.9]));
+                out.push(Quad::unlit([bx, by], [bw, bh], atlas.uv(white), [0.95, 0.93, 0.88, 1.0]));
+                out.push(Quad::unlit([bx + 2.0, by + bh], [3.0, 2.0], atlas.uv(white), [0.95, 0.93, 0.88, 1.0]));
+                let col = if id.insult { [0.75, 0.15, 0.1, 1.0] } else if id.romance || id.name == "lovin" { [0.8, 0.25, 0.45, 1.0] } else { [0.2, 0.2, 0.25, 1.0] };
+                let mut x = bx + 3.0;
+                for c in txt.chars() {
+                    if c != ' ' {
+                        out.push(Self::rect_quad(atlas, atlas.glyph(c), x, by + 2.0, col));
+                    }
+                    x += font::ADVANCE;
+                }
+                continue;
+            }
+            let hurt = w.get::<sim::health::Health>(e);
+            let show = if hurt.as_ref().is_some_and(|h| h.downed || h.bleeding > 0.0) {
+                Some(Show::Glyph('+', [0.85, 0.12, 0.1, 1.0]))
+            } else if w.has::<MentalState>(e) {
                 Some(Show::Glyph('!', [0.85, 0.15, 0.1, 1.0]))
             } else if sleeping {
                 Some(Show::Glyph('Z', [0.3, 0.45, 0.85, 1.0]))
@@ -237,7 +263,6 @@ impl Fx {
                 None
             };
             let Some(show) = show else { continue };
-            let bob = ((time * 2.5 + e.index() as f32).sin() * 1.5).round();
             let b = atlas.bubble;
             let bx = a.feet.0 + 7.0 - b.ax as f32;
             let by = a.feet.1 - a.height - 2.0 + bob - b.ay as f32;

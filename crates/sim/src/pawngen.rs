@@ -102,6 +102,10 @@ pub fn generate_pawn(world: &mut World, race: RaceId, pos: P3) -> Entity {
         PawnDebug::default(),
     ));
     world.insert(e, appearance);
+    let mut h = crate::health::Health::default();
+    crate::health::recompute(&defs, &defs.bodies[rd.body], &mut h);
+    world.insert(e, h);
+    world.insert(e, crate::social::Social::default());
     crate::stats::refresh_stats(world, e);
     world.apply_commands();
     e

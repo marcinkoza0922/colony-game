@@ -68,6 +68,29 @@ pub fn basic_orders(sim: &mut Sim) {
         }
         plan.extend([(o.offset(1, 3, 0), "bed"), (o.offset(3, 3, 0), "bed"), (o.offset(5, 3, 0), "bed")]);
         plan.push((o.offset(5, 1, 0), "torch"));
+        plan.push((o.offset(1, 1, 0), "medical_bed"));
+    }
+    // An open-air dining and games corner, and a grave plot.
+    for (p, name) in std::mem::take(&mut plan) {
+        if orders::place_blueprint(w, p, b(name), 0).is_none() {
+            eprintln!("scenario: could not place {name} at {p}");
+        }
+    }
+    if let Some(o) = find_flat_site(w, start, 6, 3) {
+        plan.extend([
+            (o.offset(1, 1, 0), "chair"),
+            (o.offset(2, 1, 0), "table"),
+            (o.offset(3, 1, 0), "chair"),
+            (o.offset(5, 1, 0), "dice_table"),
+        ]);
+    }
+    for (p, name) in std::mem::take(&mut plan) {
+        if orders::place_blueprint(w, p, b(name), 0).is_none() {
+            eprintln!("scenario: could not place {name} at {p}");
+        }
+    }
+    if let Some(o) = find_flat_site(w, start, 3, 3) {
+        plan.push((o.offset(1, 1, 0), "grave"));
     }
     for (p, name) in plan {
         if orders::place_blueprint(w, p, b(name), 0).is_none() {

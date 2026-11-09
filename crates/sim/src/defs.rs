@@ -205,6 +205,52 @@ pub type ThoughtId = DefId<ThoughtDef>;
 pub type EnvFieldId = DefId<EnvFieldDef>;
 pub type RoomRoleId = DefId<RoomRoleDef>;
 pub type WeatherId = DefId<WeatherDef>;
+pub type CapacityId = DefId<CapacityDef>;
+pub type BodyId = DefId<BodyDef>;
+pub type HediffId = DefId<HediffDef>;
+pub type DamageTypeId = DefId<DamageTypeDef>;
+pub type InteractionId = DefId<InteractionDef>;
+
+/// Relationship between two colonists (stored symmetrically; Parent/Child
+/// mirror each other).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RelKind {
+    Friend,
+    Rival,
+    Lover,
+    Partner,
+    Parent,
+    Child,
+    Sibling,
+}
+
+impl RelKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            RelKind::Friend => "Friend",
+            RelKind::Rival => "Rival",
+            RelKind::Lover => "Lover",
+            RelKind::Partner => "Partner",
+            RelKind::Parent => "Parent",
+            RelKind::Child => "Child",
+            RelKind::Sibling => "Sibling",
+        }
+    }
+    /// The relation as seen from the other side.
+    pub fn mirror(self) -> RelKind {
+        match self {
+            RelKind::Parent => RelKind::Child,
+            RelKind::Child => RelKind::Parent,
+            k => k,
+        }
+    }
+    pub fn is_family(self) -> bool {
+        matches!(self, RelKind::Parent | RelKind::Child | RelKind::Sibling)
+    }
+    pub fn is_romantic(self) -> bool {
+        matches!(self, RelKind::Lover | RelKind::Partner)
+    }
+}
 
 fn one() -> f32 {
     1.0
@@ -257,6 +303,21 @@ pub enum Condition {
     ImpressivenessAbove(f32),
     ImpressivenessBelow(f32),
     Weather(WeatherId),
+    /// Has a health condition (any severity).
+    HasHediff(HediffId),
+    /// Total pain above this (0..1).
+    PainAbove(f32),
+    CapacityBelow(CapacityId, f32),
+    Downed,
+    /// Lying in a bed (sleeping or resting as a patient).
+    InBed,
+    /// A corpse lies within this many cells (same level).
+    NearCorpse(u32),
+    /// Someone with this relation is within this many cells (same level).
+    NearRelation(RelKind, u32),
+    HasRelation(RelKind),
+    /// Sitting on a chair next to a table.
+    AtTable,
     All(Vec<Condition>),
     Any(Vec<Condition>),
     Not(Box<Condition>),
@@ -306,6 +367,10 @@ pub enum ItemCategory {
     Manufactured,
     /// Sown by farmers; never eaten.
     Seed,
+    /// Used by doctors when tending.
+    Medicine,
+    /// Dead colonists; buried in graves, never stockpiled.
+    Corpse,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -325,6 +390,25 @@ pub struct ItemDef {
     pub eat_thought: Option<ThoughtId>,
     #[serde(default)]
     pub env: Vec<EnvEmit>,
+    /// Usable by doctors when tending.
+    #[serde(default)]
+    pub medicine: Option<MedicineDef>,
+    /// Chance per eaten portion of food poisoning (scaled by the cook's skill
+    /// for meals, by filth at the eater's cell).
+    #[serde(default)]
+    pub poison_chance: f32,
+}
+
+/// A treatment source. Potency multiplies tend quality; `max_quality` caps it.
+/// Healing magic (salves, spells) plugs in through the same fields.
+#[derive(Deserialize, Clone, Debug)]
+pub struct MedicineDef {
+    pub potency: f32,
+    #[serde(default = "one")]
+    pub max_quality: f32,
+    /// Extra healing-rate multiplier on wounds it tended.
+    #[serde(default = "one")]
+    pub heal_mult: f32,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -460,6 +544,13 @@ pub enum BuildingKind {
     Workbench,
     Stairs,
     Furniture,
+    /// Holds one buried corpse.
+    Grave,
+    /// Sit-down furniture: tables and chairs (social meals).
+    Table,
+    Chair,
+    /// Two-player recreation (dice, chess...).
+    GameTable,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -475,11 +566,20 @@ pub struct BuildingDef {
     /// Shown in the build menu.
     #[serde(default = "default_true")]
     pub buildable: bool,
+    /// Sleeping places (2 = double bed shared by partners).
+    #[serde(default = "one_u32")]
+    pub slots: u32,
     /// Rest gain multiplier when sleeping here (beds).
     #[serde(default = "one")]
     pub rest_factor: f32,
     #[serde(default)]
     pub sleep_thought: Option<ThoughtId>,
+    /// Healing-rate multiplier for patients resting here (beds).
+    #[serde(default = "one")]
+    pub heal_factor: f32,
+    /// Doctors prefer these beds for patients.
+    #[serde(default)]
+    pub medical: bool,
     #[serde(default)]
     pub light: Option<LightDef>,
     #[serde(default)]
@@ -578,6 +678,8 @@ pub struct RaceDef {
     pub description: String,
     /// Body model / sprite set.
     pub sprite: String,
+    /// Anatomy (health model).
+    pub body: BodyId,
     pub needs: Vec<RaceNeed>,
     #[serde(default)]
     pub base_stats: Vec<(StatId, f32)>,
@@ -600,6 +702,16 @@ pub struct RaceDef {
     /// Comfortable ranges for environment fields (see `TooLow` / `TooHigh`).
     #[serde(default)]
     pub comfort: Vec<(EnvFieldId, f32, f32)>,
+    /// Starting opinion offset toward colonists of other races; fades as
+    /// they get to know each other.
+    #[serde(default)]
+    pub attitudes: Vec<(RaceId, f32)>,
+    /// Romantic compatibility with races (own race defaults to 1, others to
+    /// `romance_default`).
+    #[serde(default)]
+    pub romance: Vec<(RaceId, f32)>,
+    #[serde(default = "default_romance")]
+    pub romance_default: f32,
     pub first_names: Vec<String>,
     #[serde(default)]
     pub last_names: Vec<String>,
@@ -825,6 +937,249 @@ fn half() -> f32 {
     0.5
 }
 
+fn default_romance() -> f32 {
+    0.3
+}
+
+// ------------------------------------------------------------------- health
+
+/// A bodily ability (moving, manipulation...), 0..1 (1 = healthy).
+#[derive(Deserialize, Clone, Debug)]
+pub struct CapacityDef {
+    pub name: String,
+    pub label: String,
+    /// Death when it reaches zero.
+    #[serde(default)]
+    pub vital: bool,
+    /// Downed while below this.
+    #[serde(default)]
+    pub downed_below: Option<f32>,
+    /// Multiplied by lerp(1, other, weight) for each entry (earlier
+    /// capacities only), e.g. moving depends on consciousness.
+    #[serde(default)]
+    pub depends: Vec<(CapacityId, f32)>,
+    /// Offset per unit of total pain (consciousness: negative).
+    #[serde(default)]
+    pub pain: f32,
+    /// Stats multiplied by lerp(1, value, weight).
+    #[serde(default)]
+    pub stats: Vec<(StatId, f32)>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct BodyPartDef {
+    pub name: String,
+    pub label: String,
+    /// Parent part name (must appear earlier in the list); None for the root.
+    #[serde(default)]
+    pub parent: Option<String>,
+    pub hp: f32,
+    /// Chance a hit on the parent lands on this part instead (0..1).
+    #[serde(default)]
+    pub coverage: f32,
+    /// Internal organ: only struck by hits that get through the parent.
+    #[serde(default)]
+    pub inside: bool,
+    /// Free tags: `vital` (blunt non-lethal damage spares it), `extremity`
+    /// (frostbite), ...
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Capacities this part contributes to, with weight.
+    #[serde(default)]
+    pub capacities: Vec<(CapacityId, f32)>,
+    /// Destroying it kills outright (brain, heart).
+    #[serde(default)]
+    pub kills: bool,
+    /// Capacities multiplied by this part's efficiency (spine → moving).
+    #[serde(default)]
+    pub critical_for: Vec<CapacityId>,
+    /// Rectangle on the body diagram (x, y, w, h) in diagram pixels.
+    #[serde(default)]
+    pub diagram: Option<(u8, u8, u8, u8)>,
+    #[serde(skip)]
+    pub parent_idx: Option<usize>,
+}
+
+impl BodyPartDef {
+    pub fn has_tag(&self, t: &str) -> bool {
+        self.tags.iter().any(|x| x == t)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct BodyDef {
+    pub name: String,
+    pub label: String,
+    pub parts: Vec<BodyPartDef>,
+    /// Downed by pain shock above this total pain.
+    #[serde(default = "default_pain_shock")]
+    pub pain_shock: f32,
+    /// Diagram size in pixels (w, h).
+    #[serde(default)]
+    pub diagram_size: (u8, u8),
+}
+
+fn default_pain_shock() -> f32 {
+    0.8
+}
+
+impl BodyDef {
+    pub fn part(&self, name: &str) -> Option<usize> {
+        self.parts.iter().position(|p| p.name == name)
+    }
+    /// Children of a part, in def order.
+    pub fn children(&self, idx: usize) -> impl Iterator<Item = usize> + '_ {
+        self.parts.iter().enumerate().filter(move |(_, p)| p.parent_idx == Some(idx)).map(|(i, _)| i)
+    }
+    pub fn is_ancestor(&self, anc: usize, mut idx: usize) -> bool {
+        while let Some(p) = self.parts[idx].parent_idx {
+            if p == anc {
+                return true;
+            }
+            idx = p;
+        }
+        false
+    }
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HediffKind {
+    /// Damage on a part; severity = HP lost.
+    #[default]
+    Injury,
+    /// A destroyed or lost part (it and its children stop working).
+    MissingPart,
+    /// Permanent leftover of an injury.
+    Scar,
+    /// Disease racing against immunity.
+    Illness,
+    /// Whole-body state (blood loss, hypothermia, food poisoning...).
+    Condition,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct HediffStage {
+    /// Applies from this severity up.
+    #[serde(default)]
+    pub min: f32,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub pain: f32,
+    /// Capacity offsets.
+    #[serde(default)]
+    pub capacities: Vec<(CapacityId, f32)>,
+    #[serde(default)]
+    pub stat_mods: Vec<StatMod>,
+    /// While in this stage, adds this injury to a random part with the tag,
+    /// with the given chance per day (frostbite from hypothermia).
+    #[serde(default)]
+    pub spawns: Option<(HediffId, String, f32)>,
+    /// Severity of a spawned injury.
+    #[serde(default)]
+    pub spawn_severity: f32,
+}
+
+/// Disease progression: severity rises until immunity reaches 1.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ImmunityDef {
+    pub severity_per_day: f32,
+    /// Multiplier on severity gain at tend quality 1 (lerped from 1).
+    #[serde(default = "half")]
+    pub tended_factor: f32,
+    pub immunity_per_day: f32,
+    /// Severity lost per day once immune.
+    pub recover_per_day: f32,
+}
+
+/// Exposure conditions: while `when` holds, severity changes by `curve` over
+/// a field at the pawn's cell (if given) or by `gain_per_day`; otherwise it
+/// falls by `loss_per_day`. Negative curve values heal.
+#[derive(Deserialize, Clone, Debug)]
+pub struct HediffTrigger {
+    #[serde(default)]
+    pub when: Condition,
+    #[serde(default)]
+    pub curve: Option<(EnvFieldId, Vec<(f32, f32)>)>,
+    #[serde(default)]
+    pub gain_per_day: f32,
+    pub loss_per_day: f32,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct HediffDef {
+    pub name: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: HediffKind,
+    /// Blood loss per day per severity point while untended.
+    #[serde(default)]
+    pub bleed: f32,
+    /// Pain per severity point (injuries) or flat (others, scaled by severity).
+    #[serde(default)]
+    pub pain: f32,
+    /// Severity lost per day naturally.
+    #[serde(default)]
+    pub heal_per_day: f32,
+    /// Healing multiplier at tend quality 1 (lerped from 1).
+    #[serde(default = "default_tended_heal")]
+    pub tended_heal: f32,
+    #[serde(default)]
+    pub tendable: bool,
+    /// Hours a tend lasts (illnesses need re-tending).
+    #[serde(default)]
+    pub tend_hours: Option<f32>,
+    /// (infection hediff, chance) rolled once when the wound is 12 h old;
+    /// reduced by tend quality, raised by filth.
+    #[serde(default)]
+    pub infection: Option<(HediffId, f32)>,
+    /// Chance a healed injury leaves a scar.
+    #[serde(default)]
+    pub scar_chance: f32,
+    #[serde(default)]
+    pub stages: Vec<HediffStage>,
+    /// Death at this severity.
+    #[serde(default)]
+    pub lethal_at: Option<f32>,
+    #[serde(default)]
+    pub max_severity: Option<f32>,
+    #[serde(default)]
+    pub immunity: Option<ImmunityDef>,
+    #[serde(default)]
+    pub trigger: Option<HediffTrigger>,
+    /// Random illness events: weight in the illness pool (0 = never).
+    #[serde(default)]
+    pub event_weight: f32,
+    /// Starting severity for events / spawns.
+    #[serde(default)]
+    pub initial: f32,
+    /// Shown in the health tab even at zero pain.
+    #[serde(default = "default_true")]
+    pub visible: bool,
+}
+
+fn default_tended_heal() -> f32 {
+    2.0
+}
+
+impl HediffDef {
+    /// The highest stage whose `min` is at or below `sev`.
+    pub fn stage(&self, sev: f32) -> Option<&HediffStage> {
+        self.stages.iter().rev().find(|s| sev >= s.min)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct DamageTypeDef {
+    pub name: String,
+    pub label: String,
+    /// Injury hediff it causes.
+    pub injury: HediffId,
+    /// Can destroy parts (else HP stops at 1).
+    #[serde(default = "default_true")]
+    pub destroys: bool,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct QuirkDef {
     pub name: String,
@@ -848,6 +1203,69 @@ pub struct QuirkDef {
     /// Shifts the night (sleep) window, in hours.
     #[serde(default)]
     pub sleep_shift: i32,
+    /// Multiplies race attitudes (Bigot > 1, Open-minded 0).
+    #[serde(default = "one")]
+    pub race_bias: f32,
+    /// Multiplies how often this colonist starts conversations.
+    #[serde(default = "one")]
+    pub chattiness: f32,
+    /// Multiplies the chance an insult turns into a fight.
+    #[serde(default = "one")]
+    pub fight_chance: f32,
+}
+
+/// A social interaction between two nearby colonists.
+#[derive(Deserialize, Clone, Debug)]
+pub struct InteractionDef {
+    pub name: String,
+    pub label: String,
+    /// Speech-bubble symbol drawn over the initiator.
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default = "one")]
+    pub weight: f32,
+    /// Weight multiplier by the initiator's opinion of the recipient.
+    #[serde(default)]
+    pub opinion_curve: Vec<(f32, f32)>,
+    /// Weight multipliers from the initiator's quirks.
+    #[serde(default)]
+    pub quirk_weights: Vec<(QuirkId, f32)>,
+    /// Opinion change of the recipient toward the initiator (scaled by the
+    /// initiator's social impact) and of the initiator toward the recipient.
+    #[serde(default)]
+    pub opinion: f32,
+    #[serde(default)]
+    pub opinion_initiator: f32,
+    /// How long the opinion memory lasts (days).
+    #[serde(default = "default_memory_days")]
+    pub memory_days: f32,
+    /// Memory thoughts given to the recipient / initiator.
+    #[serde(default)]
+    pub thought: Option<ThoughtId>,
+    #[serde(default)]
+    pub thought_initiator: Option<ThoughtId>,
+    /// Romantic advance (may start a relationship).
+    #[serde(default)]
+    pub romance: bool,
+    /// May escalate into a social fight.
+    #[serde(default)]
+    pub insult: bool,
+    /// Fights it starts can kill (no blunt-damage safeguards).
+    #[serde(default)]
+    pub lethal_fights: bool,
+    /// Social XP for the initiator.
+    #[serde(default = "default_social_xp")]
+    pub xp: f32,
+    /// Log line ("{a} insulted {b}."); empty = not logged.
+    #[serde(default)]
+    pub log: String,
+}
+
+fn default_memory_days() -> f32 {
+    3.0
+}
+fn default_social_xp() -> f32 {
+    40.0
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -898,6 +1316,11 @@ impl_def! {
     EnvFieldDef => "env_fields",
     RoomRoleDef => "room_roles",
     WeatherDef => "weather",
+    CapacityDef => "capacities",
+    BodyDef => "bodies",
+    HediffDef => "hediffs",
+    DamageTypeDef => "damage_types",
+    InteractionDef => "interactions",
 }
 
 // ------------------------------------------------------------------- Defs
@@ -923,6 +1346,7 @@ pub struct CoreIds {
     pub thought_slept_ground: ThoughtId,
     pub thought_ate_without_table: Option<ThoughtId>,
     pub wt_cleaning: Option<WorkTypeId>,
+    pub wt_doctor: Option<WorkTypeId>,
     pub field_filth: Option<EnvFieldId>,
     pub field_temperature: Option<EnvFieldId>,
 }
@@ -944,6 +1368,11 @@ pub struct Defs {
     pub env_fields: DefList<EnvFieldDef>,
     pub room_roles: DefList<RoomRoleDef>,
     pub weather: DefList<WeatherDef>,
+    pub capacities: DefList<CapacityDef>,
+    pub bodies: DefList<BodyDef>,
+    pub hediffs: DefList<HediffDef>,
+    pub damage_types: DefList<DamageTypeDef>,
+    pub interactions: DefList<InteractionDef>,
     pub core: CoreIds,
     names: Rc<NameTables>,
 }
@@ -956,7 +1385,12 @@ struct NameOnly {
 /// Source of def files: kind -> list of (file label, RON text), in load order.
 pub type DefSources = Vec<(&'static str, Vec<(String, String)>)>;
 
-const KINDS: [&str; 15] = [
+const KINDS: [&str; 20] = [
+    "interactions",
+    "capacities",
+    "bodies",
+    "hediffs",
+    "damage_types",
     "env_fields",
     "room_roles",
     "weather",
@@ -1072,6 +1506,17 @@ impl Defs {
             let env_fields = parse(sources, t, previous.map(|p| &p.env_fields))?;
             let room_roles = parse(sources, t, previous.map(|p| &p.room_roles))?;
             let weather = parse(sources, t, previous.map(|p| &p.weather))?;
+            let capacities = parse(sources, t, previous.map(|p| &p.capacities))?;
+            let mut bodies = parse(sources, t, previous.map(|p| &p.bodies))?;
+            let hediffs = parse(sources, t, previous.map(|p| &p.hediffs))?;
+            let damage_types = parse(sources, t, previous.map(|p| &p.damage_types))?;
+            let interactions = parse(sources, t, previous.map(|p| &p.interactions))?;
+            resolve_bodies(&mut bodies)?;
+            for (id, c) in capacities.iter() {
+                if c.depends.iter().any(|(d, _)| d.index() >= id.index()) {
+                    return Err(format!("capacity `{}` depends on a later capacity", c.name));
+                }
+            }
 
             fn req<T>(r: Option<DefId<T>>, what: &str) -> Result<DefId<T>, String> {
                 r.ok_or_else(|| format!("required def `{what}` missing"))
@@ -1095,6 +1540,7 @@ impl Defs {
                 thought_slept_ground: req(thoughts.find("slept_on_ground"), "thoughts/slept_on_ground")?,
                 thought_ate_without_table: thoughts.find("ate_without_table"),
                 wt_cleaning: work_types.find("cleaning"),
+                wt_doctor: work_types.find("doctor"),
                 field_filth: env_fields.find("filth"),
                 field_temperature: env_fields.find("temperature"),
             };
@@ -1114,6 +1560,11 @@ impl Defs {
                 env_fields,
                 room_roles,
                 weather,
+                capacities,
+                bodies,
+                hediffs,
+                damage_types,
+                interactions,
                 core,
                 names: tables.clone(),
             })
@@ -1121,7 +1572,53 @@ impl Defs {
         Ok(defs)
     }
 
+    /// Health ids code refers to directly.
+    pub fn health_ids(&self) -> HealthIds {
+        HealthIds {
+            blood_loss: self.hediffs.find("blood_loss"),
+            missing: self.hediffs.find("missing_part"),
+            scar: self.hediffs.find("scar"),
+            cap_consciousness: self.capacities.find("consciousness"),
+            cap_moving: self.capacities.find("moving"),
+            cap_manipulation: self.capacities.find("manipulation"),
+        }
+    }
+
     fn names_of(&self, kind: &str) -> Vec<String> {
         self.names.kinds.get(kind).map(|k| k.names.clone()).unwrap_or_default()
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct HealthIds {
+    pub blood_loss: Option<HediffId>,
+    pub missing: Option<HediffId>,
+    pub scar: Option<HediffId>,
+    pub cap_consciousness: Option<CapacityId>,
+    pub cap_moving: Option<CapacityId>,
+    pub cap_manipulation: Option<CapacityId>,
+}
+
+/// Links body parts to their parents (by name) and checks the tree.
+fn resolve_bodies(bodies: &mut DefList<BodyDef>) -> Result<(), String> {
+    for b in &mut bodies.items {
+        let names: Vec<String> = b.parts.iter().map(|p| p.name.clone()).collect();
+        if names.is_empty() {
+            return Err(format!("body `{}` has no parts", b.name));
+        }
+        if b.parts.len() > 250 {
+            return Err(format!("body `{}` has too many parts", b.name));
+        }
+        for (i, p) in b.parts.iter_mut().enumerate() {
+            p.parent_idx = match &p.parent {
+                None if i == 0 => None,
+                None => return Err(format!("body `{}`: part `{}` has no parent", b.name, p.name)),
+                Some(n) => match names.iter().position(|x| x == n) {
+                    Some(j) if j < i => Some(j),
+                    _ => return Err(format!("body `{}`: part `{}` has unknown or later parent `{n}`", b.name, p.name)),
+                },
+            };
+        }
+    }
+    Ok(())
 }

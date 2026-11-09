@@ -77,4 +77,15 @@
             (field: "temperature", below: Some(-2.0), per_day: 0.8, label: "frost"),
             (field: "temperature", above: Some(42.0), per_day: 1.0, label: "heat"),
         ]),
+    // Medicinal herb: harvest gives herbal medicine. Slow, likes mild weather.
+    (name: "mendleaf", label: "Mendleaf", sprite: "plant_mendleaf", grow_days: 5.5,
+        harvest: Some((yields: [(item: "herbal_medicine", count: 2), (item: "mendleaf_seeds", count: 1)],
+            work: 120.0, remove: true)),
+        crop: Some((seed: "mendleaf_seeds", sow_work: 60.0, min_fertility: 0.7)),
+        growth: [
+            (field: "temperature", curve: [(2.0, 0.0), (10.0, 1.0), (28.0, 1.0), (36.0, 0.0)]),
+            (field: "light", curve: [(0.05, 0.0), (0.45, 1.0)]),
+        ],
+        harm: [(field: "temperature", below: Some(-2.0), per_day: 0.8, label: "frost")],
+        env: [(field: "beauty", amount: 0.4)]),
 ]
