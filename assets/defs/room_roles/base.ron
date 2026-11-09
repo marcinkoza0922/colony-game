@@ -1,7 +1,10 @@
 // Room roles: the highest-priority role whose building count is in range wins.
 [
-    (name: "bedroom", label: "Bedroom", buildings: ["bed"], min_count: 1, max_count: Some(1), priority: 10.0),
-    (name: "barracks", label: "Barracks", buildings: ["bed"], min_count: 2, priority: 9.0),
+    (name: "bedroom", label: "Bedroom", buildings: ["bed", "double_bed"], min_count: 1, max_count: Some(1), priority: 10.0),
+    (name: "barracks", label: "Barracks", buildings: ["bed", "double_bed"], min_count: 2, priority: 9.0),
+    (name: "hospital", label: "Hospital", buildings: ["medical_bed"], min_count: 1, priority: 11.0),
+    (name: "dining_room", label: "Dining room", buildings: ["table"], min_count: 1, priority: 6.0),
+    (name: "rec_room", label: "Recreation room", buildings: ["dice_table", "chess_table"], min_count: 1, priority: 6.5),
     (name: "kitchen", label: "Kitchen", buildings: ["campfire"], priority: 5.0),
     (name: "workshop", label: "Workshop", buildings: ["workbench", "stonecutter"], priority: 4.0),
 ]

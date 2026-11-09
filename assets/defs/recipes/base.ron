@@ -20,4 +20,8 @@
     (name: "assemble_components", label: "Assemble components", bench: "workbench",
         inputs: [(item: "scrap", count: 6), (item: "metal_parts", count: 2)], outputs: [(item: "components", count: 1)],
         work: 600.0, skill: "engineering", work_type: "crafting", speed_stat: "crafting_speed"),
+    (name: "make_med_kit", label: "Make med kit", bench: "workbench",
+        inputs: [(item: "herbal_medicine", count: 2), (item: "fiber", count: 4), (item: "metal_parts", count: 1)],
+        outputs: [(item: "med_kit", count: 1)],
+        work: 500.0, skill: "medicine", work_type: "crafting", speed_stat: "crafting_speed"),
 ]

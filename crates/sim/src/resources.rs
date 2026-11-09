@@ -117,6 +117,7 @@ pub struct Stockpile {
     pub allow_meals: bool,
     pub allow_manufactured: bool,
     pub allow_seeds: bool,
+    pub allow_medicine: bool,
     pub cells: Vec<P3>,
 }
 
@@ -128,6 +129,8 @@ impl Stockpile {
             ItemCategory::Meal => self.allow_meals,
             ItemCategory::Manufactured => self.allow_manufactured,
             ItemCategory::Seed => self.allow_seeds,
+            ItemCategory::Medicine => self.allow_medicine,
+            ItemCategory::Corpse => false,
         }
     }
 }
@@ -180,6 +183,7 @@ impl Zones {
                 allow_meals: true,
                 allow_manufactured: true,
                 allow_seeds: true,
+                allow_medicine: true,
                 cells,
             },
         );

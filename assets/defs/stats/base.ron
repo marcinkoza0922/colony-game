@@ -11,4 +11,11 @@
     (name: "break_threshold", label: "Mental break threshold", default: 35.0, min: 5.0, max: Some(80.0)),
     (name: "hunger_rate", label: "Hunger rate", default: 1.0, min: 0.1),
     (name: "rest_rate", label: "Rest fall rate", default: 1.0, min: 0.1),
+    (name: "social_impact", label: "Social impact", default: 1.0, skill: Some("social"), skill_base: 0.6, skill_per_level: 0.04, min: 0.1),
+    (name: "tend_quality", label: "Tend quality", default: 1.0, skill: Some("medicine"), skill_base: 0.3, skill_per_level: 0.05, min: 0.05),
+    (name: "tend_speed", label: "Tend speed", default: 1.0, skill: Some("medicine"), skill_base: 0.5, skill_per_level: 0.05, min: 0.1),
+    (name: "immunity_gain", label: "Immunity gain speed", default: 1.0, min: 0.1),
+    (name: "injury_heal", label: "Injury healing", default: 1.0, min: 0.1),
+    (name: "accident_chance", label: "Accident chance", default: 1.0, min: 0.0),
+    (name: "food_poison_chance", label: "Food poisoning chance", default: 1.0, min: 0.0),
 ]

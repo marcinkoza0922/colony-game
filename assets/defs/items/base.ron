@@ -1,4 +1,5 @@
-// Items. Categories: Resource, RawFood, Meal, Manufactured, Seed.
+// Items. Categories: Resource, RawFood, Meal, Manufactured, Seed, Medicine, Corpse.
+// `poison_chance`: food poisoning chance per meal (raised by filth).
 [
     (name: "wood", label: "Wood", sprite: "item_wood"),
     (name: "stone", label: "Stone chunks", sprite: "item_stone",
@@ -10,13 +11,13 @@
     (name: "components", label: "Old-world components", sprite: "item_components", stack: 25),
     (name: "metal_parts", label: "Metal parts", sprite: "item_parts", category: Manufactured),
     (name: "berries", label: "Duskberries", sprite: "item_berries", category: RawFood,
-        nutrition: 0.05, eat_thought: Some("ate_raw_food")),
+        nutrition: 0.05, eat_thought: Some("ate_raw_food"), poison_chance: 0.012),
     (name: "ashroot", label: "Ashroot", sprite: "item_ashroot", category: RawFood,
-        nutrition: 0.06, eat_thought: Some("ate_raw_food")),
+        nutrition: 0.06, eat_thought: Some("ate_raw_food"), poison_chance: 0.012),
     (name: "rustwheat", label: "Rustwheat grain", sprite: "item_grain", category: RawFood,
-        nutrition: 0.04, eat_thought: Some("ate_raw_food")),
+        nutrition: 0.04, eat_thought: Some("ate_raw_food"), poison_chance: 0.012),
     (name: "gloomcap", label: "Gloomcaps", sprite: "item_gloomcap", category: RawFood,
-        nutrition: 0.05, eat_thought: Some("ate_raw_food")),
+        nutrition: 0.05, eat_thought: Some("ate_raw_food"), poison_chance: 0.012),
     (name: "fiber", label: "Threadflax fiber", sprite: "item_fiber"),
     // Seeds: one per sown cell; harvests give some back.
     (name: "duskberry_seeds", label: "Duskberry seeds", sprite: "item_seeds_duskberry", category: Seed),
@@ -25,5 +26,13 @@
     (name: "gloomcap_spores", label: "Gloomcap spores", sprite: "item_seeds_gloomcap", category: Seed),
     (name: "threadflax_seeds", label: "Threadflax seeds", sprite: "item_seeds_threadflax", category: Seed),
     (name: "simple_meal", label: "Simple meal", sprite: "item_meal", category: Meal, stack: 10,
-        nutrition: 0.9, eat_thought: Some("ate_cooked_meal")),
+        nutrition: 0.9, eat_thought: Some("ate_cooked_meal"), poison_chance: 0.004),
+    (name: "mendleaf_seeds", label: "Mendleaf seeds", sprite: "item_seeds_mendleaf", category: Seed),
+    // Medicine: tend quality = doctor skill x potency (capped at max_quality).
+    (name: "herbal_medicine", label: "Herbal medicine", sprite: "item_herbal_medicine", category: Medicine, stack: 25,
+        medicine: Some((potency: 0.8, max_quality: 0.85))),
+    (name: "med_kit", label: "Med kit", sprite: "item_med_kit", category: Medicine, stack: 25,
+        medicine: Some((potency: 1.15, max_quality: 1.0, heal_mult: 1.15))),
+    (name: "corpse", label: "Corpse", sprite: "item_corpse", category: Corpse, stack: 1,
+        env: [(field: "beauty", amount: -4.0, radius: 2.0)]),
 ]

@@ -48,10 +48,13 @@ fn reserve(world: &World, pawn: Entity, keys: &[ResKey]) -> bool {
 /// Chooses a new job for an idle pawn.
 pub fn think(world: &World, pawn: Entity) -> Job {
     let Some(pos) = pos_of(world, pawn) else { return wait_job(60) };
+    let defs = defs(world);
+    if crate::health::is_downed(world, pawn) {
+        return crate::medical::downed_job();
+    }
     if let Some(ms) = world.get_cloned::<MentalState>(pawn) {
         return mental_job(world, pawn, pos, ms.kind);
     }
-    let defs = defs(world);
     let hunger = need_value(world, pawn, NeedRole::Food).unwrap_or(1.0);
     let rest = need_value(world, pawn, NeedRole::Rest).unwrap_or(1.0);
     let rec = need_value(world, pawn, NeedRole::Recreation);
@@ -66,12 +69,16 @@ pub fn think(world: &World, pawn: Entity) -> Job {
     {
         return j;
     }
+    let sick = world.get::<crate::health::Health>(pawn).is_some_and(|h| h.wants_bed_rest(&defs));
+    if sick && let Some(j) = crate::medical::rest_job(world, pawn, pos) {
+        return j;
+    }
     if rest < 0.25 || (night && rest < 0.8) {
         return sleep_job(world, pawn, pos);
     }
     if let Some(r) = rec
         && r < 0.2
-        && let Some(j) = relax_job(world, pawn, pos)
+        && let Some(j) = crate::social::recreation_job(world, pawn, pos).or_else(|| relax_job(world, pawn, pos))
     {
         return j;
     }
@@ -89,7 +96,14 @@ pub fn think(world: &World, pawn: Entity) -> Job {
     }
     if let Some(r) = rec
         && r < 0.7
-        && let Some(j) = relax_job(world, pawn, pos)
+        && let Some(j) = crate::social::recreation_job(world, pawn, pos).or_else(|| relax_job(world, pawn, pos))
+    {
+        return j;
+    }
+    // Idle: sometimes seek company instead of wandering (every race, not
+    // just those with a recreation need).
+    if world.res_mut::<SimRng>().chance(0.5)
+        && let Some(j) = crate::social::recreation_job(world, pawn, pos)
     {
         return j;
     }
@@ -98,8 +112,10 @@ pub fn think(world: &World, pawn: Entity) -> Job {
 
 fn give_work(world: &World, defs: &Defs, pawn: Entity, pos: P3, wt: WorkTypeId) -> Option<Job> {
     let core = &defs.core;
-    if wt == core.wt_hauling {
-        haul_job(world, pawn, pos)
+    if Some(wt) == core.wt_doctor {
+        crate::medical::doctor_job(world, defs, pawn, pos)
+    } else if wt == core.wt_hauling {
+        bury_job(world, defs, pawn, pos).or_else(|| haul_job(world, pawn, pos))
     } else if wt == core.wt_mining {
         mining_job(world, pawn, pos)
     } else if wt == core.wt_construction {
@@ -145,7 +161,7 @@ fn mental_job(world: &World, pawn: Entity, pos: P3, kind: BreakKind) -> Job {
     match kind {
         BreakKind::Sulking => wander_job(world, pos, JobKind::MentalBreak, 200).unwrap_or_else(|| wait_job(120)),
         BreakKind::Hiding => {
-            let bed = world.read::<Bed>().iter().find(|(_, b)| b.owner == Some(pawn)).map(|(e, _)| e);
+            let bed = world.read::<Bed>().iter().find(|(_, b)| b.sleeps(pawn)).map(|(e, _)| e);
             let mut toils = Vec::new();
             if let Some(bp) = bed.and_then(|b| pos_of(world, b)) {
                 toils.push(Toil::GoTo(Goal::On(bp)));
@@ -196,30 +212,97 @@ fn eat_job(world: &World, pawn: Entity, pos: P3) -> Option<Job> {
     let nut = defs.items[it.def].nutrition.max(0.01);
     let cur = need_value(world, pawn, NeedRole::Food).unwrap_or(0.0);
     let count = (((1.0 - cur) / nut).ceil() as u32).clamp(1, it.count);
+    let mut toils = vec![Toil::GoTo(Goal::On(ipos)), Toil::PickUp { item, count }];
+    if let Some(chair) = find_seat(world, pawn, ipos)
+        && reserve(world, pawn, &[ResKey::Cell(chair)])
+    {
+        toils.push(Toil::GoTo(Goal::On(chair)));
+    }
+    toils.push(Toil::Eat { ticks: 120 });
+    Some(Job::new(JobKind::Eat, toils))
+}
+
+/// A free chair next to a table, near `from`.
+fn find_seat(world: &World, pawn: Entity, from: P3) -> Option<P3> {
+    let map = world.res::<Map>();
+    let res = world.res::<Reservations>();
+    let taken: Vec<P3> = world.res::<PawnPositions>().0.iter().filter(|(e, _)| *e != pawn).map(|(_, p)| *p).collect();
+    let mut pf = world.res_mut::<Pathfinder>();
+    pf.search(&map, from, 600, |p| {
+        let c = map.cell(p);
+        (c.building_kind == Some(BuildingKind::Chair)
+            && !taken.contains(&p)
+            && !res.blocked(ResKey::Cell(p), pawn)
+            && NEIGHBORS8.iter().any(|(dx, dy)| {
+                map.get(p.offset(*dx, *dy, 0)).is_some_and(|n| n.building_kind == Some(BuildingKind::Table))
+            }))
+        .then_some(p)
+    })
+    .map(|(r, _)| r)
+}
+
+/// Hauling: carry a corpse to an empty grave and bury it.
+fn bury_job(world: &World, defs: &Defs, pawn: Entity, pos: P3) -> Option<Job> {
+    let _ = defs;
+    let graves: Vec<(Entity, P3)> = {
+        let gs = world.read::<crate::death::Grave>();
+        let res = world.res::<Reservations>();
+        gs.iter()
+            .filter(|(e, g)| g.occupant.is_none() && !res.blocked(ResKey::Entity(*e), pawn))
+            .filter_map(|(e, _)| pos_of(world, e).map(|p| (e, p)))
+            .collect()
+    };
+    if graves.is_empty() {
+        return None;
+    }
+    let corpse = {
+        let cs = world.read::<crate::death::Corpse>();
+        let res = world.res::<Reservations>();
+        cs.entities()
+            .iter()
+            .filter(|e| !res.blocked(ResKey::Entity(**e), pawn) && !world.read::<crate::death::Grave>().is_empty())
+            .filter_map(|e| pos_of(world, *e).map(|p| (*e, p)))
+            .min_by_key(|(e, p)| (p.manhattan(pos), *e))
+    };
+    let (c, cp) = corpse?;
+    let (g, gp) = *graves.iter().min_by_key(|(e, p)| (p.manhattan(cp), *e))?;
+    if !reserve(world, pawn, &[ResKey::Entity(c), ResKey::Entity(g)]) {
+        return None;
+    }
     Some(Job::new(
-        JobKind::Eat,
-        vec![Toil::GoTo(Goal::On(ipos)), Toil::PickUp { item, count }, Toil::Eat { ticks: 120 }],
+        JobKind::Bury,
+        vec![
+            Toil::GoTo(Goal::On(cp)),
+            Toil::PickUp { item: c, count: 1 },
+            Toil::GoTo(Goal::Near(gp)),
+            Toil::Work(WorkTarget::Bury(g)),
+        ],
     ))
 }
 
 fn sleep_job(world: &World, pawn: Entity, pos: P3) -> Job {
-    let beds: Vec<(Entity, Option<Entity>, P3)> = {
+    let beds: Vec<(Entity, Option<Entity>, P3, bool)> = {
         let beds = world.read::<Bed>();
-        beds.iter().filter_map(|(e, b)| pos_of(world, e).map(|p| (e, b.owner, p))).collect()
+        beds.iter().filter_map(|(e, b)| pos_of(world, e).map(|p| (e, b.owner, p, b.sleeps(pawn)))).collect()
     };
-    let own = beds.iter().find(|(_, o, _)| *o == Some(pawn));
+    let own = beds.iter().find(|(_, _, _, mine)| *mine).map(|(e, o, p, _)| (*e, *o, *p));
     let pick = own.or_else(|| {
         beds.iter()
-            .filter(|(e, o, _)| {
+            .filter(|(e, o, _, _)| {
                 (o.is_none() || o.is_some_and(|o| !world.is_alive(o)))
                     && !world.res::<Reservations>().blocked(ResKey::Entity(*e), pawn)
             })
-            .min_by_key(|(_, _, p)| p.manhattan(pos))
+            .min_by_key(|(_, _, p, _)| p.manhattan(pos))
+            .map(|(e, o, p, _)| (*e, *o, *p))
     });
-    if let Some((bed, _, bpos)) = pick.copied()
-        && reserve(world, pawn, &[ResKey::Entity(bed)])
+    // A shared double bed isn't reserved: both partners sleep in it.
+    let shared = pick.is_some_and(|(b, _, _)| world.get::<Bed>(b).is_some_and(|bb| bb.second.is_some()));
+    if let Some((bed, _, bpos)) = pick
+        && (shared || reserve(world, pawn, &[ResKey::Entity(bed)]))
     {
-        if let Some(mut b) = world.get_mut::<Bed>(bed) {
+        if let Some(mut b) = world.get_mut::<Bed>(bed)
+            && !b.sleeps(pawn)
+        {
             b.owner = Some(pawn);
         }
         return Job::new(JobKind::Sleep, vec![Toil::GoTo(Goal::On(bpos)), Toil::Sleep { bed: Some(bed) }]);
@@ -415,7 +498,7 @@ fn find_storage(world: &World, pawn: Entity, def: ItemId, from: P3) -> Option<(P
             None => Some((p, stack)),
             Some(e) => {
                 let it = itemst.get(e)?;
-                (it.def == def && it.count < stack).then_some((p, stack - it.count))
+                (it.def == def && it.count < stack).then(|| (p, stack - it.count))
             }
         }
     })

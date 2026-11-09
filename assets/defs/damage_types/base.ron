@@ -1,0 +1,8 @@
+// Damage types map to the injury they cause. `destroys: false` stops at 1 HP.
+[
+    (name: "cut", label: "cut", injury: "cut"),
+    (name: "blunt", label: "blunt", injury: "bruise", destroys: false),
+    (name: "crush", label: "crush", injury: "crush"),
+    (name: "burn", label: "burn", injury: "burn"),
+    (name: "bite", label: "bite", injury: "bite"),
+]

@@ -1,0 +1,97 @@
+// Health conditions ("hediffs"). Injuries live on a body part and their
+// severity is HP lost. Others are whole-body (or on a part, like infection).
+// Pain: injuries give `pain` per HP lost; other kinds give pain x severity.
+// Stages apply from `min` severity up and add pain, capacity offsets and stat
+// modifiers.
+[
+    // ---------------------------------------------------------- injuries
+    (name: "cut", label: "Cut", kind: Injury, bleed: 0.06, pain: 0.0125, heal_per_day: 6.0, tended_heal: 2.5,
+        tendable: true, infection: Some(("infection", 0.25)), scar_chance: 0.15),
+    (name: "bruise", label: "Bruise", kind: Injury, pain: 0.01, heal_per_day: 9.0, tendable: true),
+    (name: "crush", label: "Crush wound", kind: Injury, bleed: 0.015, pain: 0.0125, heal_per_day: 5.0,
+        tendable: true, infection: Some(("infection", 0.15)), scar_chance: 0.2),
+    (name: "burn", label: "Burn", kind: Injury, pain: 0.019, heal_per_day: 5.0, tended_heal: 3.0,
+        tendable: true, infection: Some(("infection", 0.3)), scar_chance: 0.3),
+    (name: "frostbite", label: "Frostbite", kind: Injury, pain: 0.0125, heal_per_day: 4.0,
+        tendable: true, infection: Some(("infection", 0.2)), scar_chance: 0.3),
+    (name: "bite", label: "Bite", kind: Injury, bleed: 0.05, pain: 0.0125, heal_per_day: 6.0,
+        tendable: true, infection: Some(("infection", 0.4)), scar_chance: 0.2),
+    (name: "missing_part", label: "Missing", kind: MissingPart, pain: 0.0),
+    (name: "scar", label: "Scar", kind: Scar, pain: 0.003),
+
+    // ------------------------------------------------------------ blood
+    (name: "blood_loss", label: "Blood loss", kind: Condition, heal_per_day: 0.33, lethal_at: Some(1.0),
+        max_severity: Some(1.0), tendable: false,
+        stages: [
+            (min: 0.0, label: "trivial"),
+            (min: 0.15, label: "minor", capacities: [("consciousness", -0.1)]),
+            (min: 0.3, label: "moderate", capacities: [("consciousness", -0.2)]),
+            (min: 0.45, label: "severe", capacities: [("consciousness", -0.4)]),
+            (min: 0.6, label: "extreme", capacities: [("consciousness", -0.75)]),
+        ]),
+
+    // --------------------------------------------------------- illnesses
+    (name: "infection", label: "Infection", kind: Illness, tendable: true, tend_hours: Some(24.0),
+        lethal_at: Some(1.0), max_severity: Some(1.0), initial: 0.15,
+        immunity: Some((severity_per_day: 0.5, tended_factor: 0.35, immunity_per_day: 0.55, recover_per_day: 0.4)),
+        stages: [
+            (min: 0.0, label: "minor", pain: 0.05),
+            (min: 0.33, label: "major", pain: 0.08, capacities: [("consciousness", -0.05)]),
+            (min: 0.78, label: "extreme", pain: 0.12, capacities: [("consciousness", -0.15)]),
+        ]),
+    (name: "flu", label: "Flu", kind: Illness, tendable: true, tend_hours: Some(24.0),
+        lethal_at: Some(1.0), max_severity: Some(1.0), initial: 0.15, event_weight: 3.0,
+        immunity: Some((severity_per_day: 0.2, tended_factor: 0.4, immunity_per_day: 0.3, recover_per_day: 0.3)),
+        stages: [
+            (min: 0.0, label: "minor", capacities: [("consciousness", -0.05)]),
+            (min: 0.5, label: "major", pain: 0.05, capacities: [("consciousness", -0.1), ("manipulation", -0.05), ("breathing", -0.1)]),
+            (min: 0.8, label: "extreme", pain: 0.1, capacities: [("consciousness", -0.15), ("manipulation", -0.1), ("breathing", -0.2)]),
+        ]),
+    (name: "gut_worms", label: "Gut worms", kind: Illness, tendable: true, tend_hours: Some(24.0),
+        max_severity: Some(1.0), initial: 0.3, event_weight: 2.0,
+        immunity: Some((severity_per_day: 0.04, tended_factor: 0.3, immunity_per_day: 0.07, recover_per_day: 0.25)),
+        stages: [
+            (min: 0.0, label: "", pain: 0.15, stat_mods: [(stat: "hunger_rate", op: Mul(1.5))]),
+        ]),
+
+    // --------------------------------------------------------- conditions
+    (name: "food_poisoning", label: "Food poisoning", kind: Condition, initial: 1.0, heal_per_day: 1.0,
+        max_severity: Some(1.0),
+        stages: [
+            (min: 0.0, label: "recovering", pain: 0.1, capacities: [("consciousness", -0.05)]),
+            (min: 0.2, label: "major", pain: 0.2, capacities: [("consciousness", -0.1), ("moving", -0.1), ("manipulation", -0.1)]),
+            (min: 0.8, label: "initial", pain: 0.2, capacities: [("consciousness", -0.05)]),
+        ]),
+    (name: "hypothermia", label: "Hypothermia", kind: Condition, lethal_at: Some(1.0), max_severity: Some(1.0),
+        trigger: Some((
+            when: Not(InBed),
+            curve: Some(("temperature", [(-40.0, 3.0), (-20.0, 1.2), (-9.0, 0.25), (-4.0, -0.3), (5.0, -1.0), (15.0, -2.0)])),
+            loss_per_day: 2.0,
+        )),
+        stages: [
+            (min: 0.04, label: "shivering", capacities: [("manipulation", -0.08)]),
+            (min: 0.2, label: "minor", capacities: [("consciousness", -0.1), ("moving", -0.1), ("manipulation", -0.2)]),
+            (min: 0.35, label: "serious", capacities: [("consciousness", -0.2), ("moving", -0.3), ("manipulation", -0.5)],
+                spawns: Some(("frostbite", "extremity", 0.6)), spawn_severity: 4.0),
+            (min: 0.62, label: "extreme", capacities: [("consciousness", -0.75), ("moving", -0.5), ("manipulation", -0.7)],
+                spawns: Some(("frostbite", "extremity", 1.5)), spawn_severity: 6.0),
+        ]),
+    (name: "heatstroke", label: "Heatstroke", kind: Condition, lethal_at: Some(1.0), max_severity: Some(1.0),
+        trigger: Some((
+            curve: Some(("temperature", [(30.0, -1.0), (36.0, -0.2), (40.0, 0.4), (50.0, 1.5), (65.0, 3.0)])),
+            loss_per_day: 2.0,
+        )),
+        stages: [
+            (min: 0.04, label: "minor", capacities: [("consciousness", -0.05)]),
+            (min: 0.2, label: "moderate", pain: 0.1, capacities: [("consciousness", -0.1), ("moving", -0.1)]),
+            (min: 0.35, label: "serious", pain: 0.2, capacities: [("consciousness", -0.25), ("moving", -0.3), ("manipulation", -0.3)]),
+            (min: 0.62, label: "extreme", pain: 0.3, capacities: [("consciousness", -0.75), ("moving", -0.5)]),
+        ]),
+    (name: "aether_sickness", label: "Aether sickness", kind: Condition, max_severity: Some(1.0),
+        trigger: Some((when: All([Weather("aether_storm"), Outdoors]), gain_per_day: 0.6, loss_per_day: 0.25)),
+        stages: [
+            (min: 0.1, label: "queasy", capacities: [("consciousness", -0.05)]),
+            (min: 0.4, label: "sick", pain: 0.1, capacities: [("consciousness", -0.1), ("manipulation", -0.05)]),
+            (min: 0.7, label: "severe", pain: 0.2, capacities: [("consciousness", -0.2), ("manipulation", -0.15), ("sight", -0.2)]),
+        ]),
+]

@@ -27,6 +27,9 @@ pub enum Activity {
     Idle,
     Working,
     Sleeping,
+    /// Lying down awake: bed rest as a patient, or downed.
+    Resting,
+    Eating,
     Other,
 }
 
@@ -46,6 +49,9 @@ pub struct Ctx<'a> {
     pub needs: &'a [f32],
     pub mood: f32,
     pub activity: Activity,
+    pub health: Option<&'a crate::health::Health>,
+    pub social: Option<&'a crate::social::Social>,
+    pub corpses: &'a [P3],
 }
 
 impl Ctx<'_> {
@@ -117,6 +123,37 @@ pub fn eval(c: &Condition, ctx: &Ctx) -> bool {
         Condition::ImpressivenessAbove(v) => room(ctx).is_some_and(|r| r.impressiveness > *v),
         Condition::ImpressivenessBelow(v) => room(ctx).is_some_and(|r| r.impressiveness < *v),
         Condition::Weather(w) => ctx.weather.current == Some(*w),
+        Condition::HasHediff(h) => ctx.health.is_some_and(|x| x.has(*h)),
+        Condition::PainAbove(v) => ctx.health.is_some_and(|x| x.pain > *v),
+        Condition::CapacityBelow(c, v) => ctx.health.is_some_and(|x| x.capacity(*c) < *v),
+        Condition::Downed => ctx.health.is_some_and(|x| x.downed),
+        Condition::InBed => {
+            matches!(ctx.activity, Activity::Sleeping | Activity::Resting)
+                && ctx.map.get(ctx.pos).is_some_and(|c| c.building_kind == Some(BuildingKind::Bed))
+        }
+        Condition::NearRelation(k, r) => {
+            let r = *r as i32;
+            ctx.social.is_some_and(|s| {
+                s.relations.iter().filter(|(_, kk)| kk == k).any(|(e, _)| {
+                    ctx.others.iter().any(|(o, p)| {
+                        o == e && p.z == ctx.pos.z && (p.x - ctx.pos.x).abs() <= r && (p.y - ctx.pos.y).abs() <= r
+                    })
+                })
+            })
+        }
+        Condition::HasRelation(k) => ctx.social.is_some_and(|s| s.relations.iter().any(|(_, kk)| kk == k)),
+        // Seated at a table (the job is removed from the world while it runs,
+        // so this doesn't look at the activity).
+        Condition::AtTable => {
+            ctx.map.get(ctx.pos).is_some_and(|c| c.building_kind == Some(BuildingKind::Chair))
+                && crate::geom::NEIGHBORS8.iter().any(|(dx, dy)| {
+                    ctx.map.get(ctx.pos.offset(*dx, *dy, 0)).is_some_and(|c| c.building_kind == Some(BuildingKind::Table))
+                })
+        }
+        Condition::NearCorpse(r) => {
+            let r = *r as i32;
+            ctx.corpses.iter().any(|p| p.z == ctx.pos.z && (p.x - ctx.pos.x).abs() <= r && (p.y - ctx.pos.y).abs() <= r)
+        }
         Condition::All(cs) => cs.iter().all(|c| eval(c, ctx)),
         Condition::Any(cs) => cs.iter().any(|c| eval(c, ctx)),
         Condition::Not(c) => !eval(c, ctx),
@@ -153,6 +190,19 @@ pub fn compute_stats(ctx: &Ctx, skills: &[SkillLevel], thoughts: &[ThoughtId]) -
     for t in thoughts {
         defs.thoughts[*t].stat_mods.iter().for_each(&mut apply);
     }
+    if let Some(h) = ctx.health {
+        for x in &h.hediffs {
+            if let Some(st) = defs.hediffs[x.def].stage(x.severity) {
+                st.stat_mods.iter().for_each(&mut apply);
+            }
+        }
+        for (cid, cd) in defs.capacities.iter() {
+            let v = h.capacity(cid).min(1.0);
+            for (st, w) in &cd.stats {
+                mul[st.index()] *= (1.0 + (v - 1.0) * w).max(0.0);
+            }
+        }
+    }
     defs.stats
         .iter()
         .map(|(id, sd)| {
@@ -175,7 +225,10 @@ pub fn compute_stats(ctx: &Ctx, skills: &[SkillLevel], thoughts: &[ThoughtId]) -
 pub fn activity_of(job: Option<&CurrentJob>) -> Activity {
     match job.map(|j| j.0.kind) {
         None => Activity::Idle,
-        Some(JobKind::Sleep) => Activity::Sleeping,
+        Some(JobKind::Sleep) if job.is_some_and(|j| j.is_sleeping()) => Activity::Sleeping,
+        Some(JobKind::Sleep) => Activity::Other,
+        Some(JobKind::Rest | JobKind::Downed) => Activity::Resting,
+        Some(JobKind::Eat) => Activity::Eating,
         Some(k) if k.is_work() => Activity::Working,
         Some(_) => Activity::Other,
     }
@@ -197,6 +250,9 @@ pub fn with_ctx<R>(world: &World, pawn: Entity, f: impl FnOnce(&Ctx) -> R) -> Op
     let needs = world.get::<Needs>(pawn)?;
     let mood = world.get::<Mood>(pawn).map(|m| m.value).unwrap_or(50.0);
     let activity = activity_of(world.read::<CurrentJob>().get(pawn));
+    let health = world.get::<crate::health::Health>(pawn);
+    let social = world.get::<crate::social::Social>(pawn);
+    let corpses = world.res::<crate::death::CorpsePositions>();
     let ctx = Ctx {
         defs: &defs,
         map: &map,
@@ -212,6 +268,9 @@ pub fn with_ctx<R>(world: &World, pawn: Entity, f: impl FnOnce(&Ctx) -> R) -> Op
         needs: &needs.values,
         mood,
         activity,
+        health: health.as_deref(),
+        social: social.as_deref(),
+        corpses: &corpses.0,
     };
     Some(f(&ctx))
 }
@@ -239,6 +298,12 @@ pub fn stat(world: &World, pawn: Entity, s: StatId) -> f32 {
         Some(c) => c.get(&defs, s),
         None => defs.stats[s].default,
     }
+}
+
+/// Reads a cached stat by def name (None if the stat doesn't exist).
+pub fn stat_by_name(world: &World, pawn: Entity, name: &str) -> Option<f32> {
+    let defs = world.res::<std::rc::Rc<Defs>>().clone();
+    defs.stats.find(name).map(|s| stat(world, pawn, s))
 }
 
 /// Learning multiplier for a skill: race and quirk aptitudes × learn rate stat.

@@ -206,6 +206,8 @@ pub fn set_stockpile_filter(world: &mut World, zone: u16, cat: ItemCategory, all
             ItemCategory::Meal => sp.allow_meals = allow,
             ItemCategory::Manufactured => sp.allow_manufactured = allow,
             ItemCategory::Seed => sp.allow_seeds = allow,
+            ItemCategory::Medicine => sp.allow_medicine = allow,
+            ItemCategory::Corpse => {}
         }
     }
 }

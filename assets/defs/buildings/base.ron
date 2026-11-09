@@ -1,4 +1,4 @@
-// Buildings. Kinds: Wall, Door, Bed, Workbench, Stairs, Furniture.
+// Buildings. Kinds: Wall, Door, Bed, Workbench, Stairs, Furniture, Grave, Table, Chair, GameTable.
 [
     (name: "wood_wall", label: "Wooden wall", sprite: "bld_wood_wall", kind: Wall,
         cost: [(item: "wood", count: 5)], work: 150.0),
@@ -24,4 +24,24 @@
         light: Some((radius: 5.0, color: (0.95, 0.62, 0.32), height: 0.9, flicker: 0.2)),
         env: [(field: "temperature", amount: 0.4, radius: 1.0)]),
     (name: "stairs", label: "Stairs", sprite: "bld_stairs", kind: Stairs, buildable: false),
+    (name: "double_bed", label: "Double bed", sprite: "bld_double_bed", kind: Bed, slots: 2,
+        cost: [(item: "wood", count: 35)], work: 450.0, sleep_thought: Some("slept_in_bed"),
+        env: [(field: "beauty", amount: 1.5, radius: 1.0)]),
+    (name: "medical_bed", label: "Medical bed", sprite: "bld_medical_bed", kind: Bed, medical: true, heal_factor: 1.3,
+        cost: [(item: "wood", count: 20), (item: "metal_parts", count: 4)], work: 500.0, sleep_thought: Some("slept_in_bed"),
+        rest_factor: 1.05),
+    (name: "table", label: "Table", sprite: "bld_table", kind: Table,
+        cost: [(item: "wood", count: 15)], work: 250.0,
+        env: [(field: "beauty", amount: 0.5, radius: 1.0)]),
+    (name: "chair", label: "Chair", sprite: "bld_chair", kind: Chair,
+        cost: [(item: "wood", count: 6)], work: 120.0),
+    (name: "dice_table", label: "Dice table", sprite: "bld_dice_table", kind: GameTable,
+        cost: [(item: "wood", count: 20)], work: 300.0,
+        env: [(field: "beauty", amount: 0.5, radius: 1.0)]),
+    (name: "chess_table", label: "Chess table", sprite: "bld_chess_table", kind: GameTable,
+        cost: [(item: "wood", count: 20), (item: "stone_blocks", count: 5)], work: 500.0,
+        env: [(field: "beauty", amount: 1.5, radius: 1.0)]),
+    // Dug, not built: no materials. A filled grave is a little sad to look at.
+    (name: "grave", label: "Grave", sprite: "bld_grave", kind: Grave, work: 200.0,
+        env: [(field: "beauty", amount: -0.5, radius: 1.0)]),
 ]

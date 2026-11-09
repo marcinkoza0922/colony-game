@@ -84,6 +84,8 @@ pub struct Game {
     reload_timer: f32,
     pub save_path: PathBuf,
     pub ui_scale: f32,
+    /// Colonist inspector tab: 0 overview, 1 health, 2 social.
+    pub pawn_tab: u8,
 }
 
 fn dir_stamp(dir: &std::path::Path) -> Option<SystemTime> {
@@ -209,6 +211,7 @@ impl Game {
             reload_timer: 0.0,
             save_path: PathBuf::from("saves/quick.sav"),
             ui_scale: 2.0,
+            pawn_tab: 0,
         }
     }
 
@@ -978,6 +981,32 @@ impl Game {
             ui.text(x + 5.0, y, &format!("BREAK: {}", ms.kind.label()), theme::BAD);
             y += 11.0;
         }
+        // Tabs.
+        let mut tab = self.pawn_tab;
+        for (i, label) in ["Overview", "Health", "Social"].iter().enumerate() {
+            let bw = (pw - 12.0) / 3.0;
+            if ui.button(x + 5.0 + i as f32 * (bw + 1.0), y, bw, 12.0, label, tab == i as u8) {
+                tab = i as u8;
+            }
+        }
+        y += 16.0;
+        if tab != self.pawn_tab {
+            self.pawn_tab = tab;
+        }
+        let bottom = y0 + ph - 18.0;
+        match tab {
+            1 => {
+                crate::pawn_tabs::health_tab(ui, w, &defs, e, (x, y, pw, bottom));
+                self.center_button(ui, e, x, pw, y0, ph);
+                return;
+            }
+            2 => {
+                crate::pawn_tabs::social_tab(ui, w, e, (x, y, pw, bottom));
+                self.center_button(ui, e, x, pw, y0, ph);
+                return;
+            }
+            _ => {}
+        }
         // Mood.
         let mood = w.get_cloned::<Mood>(e).unwrap_or_default();
         let thr = sim::stats::stat(w, e, defs.core.stat_break_threshold);
@@ -1026,9 +1055,10 @@ impl Game {
         let mut mem: Vec<(String, f32)> = Vec::new();
         for m in &mood.memories {
             let td = &defs.thoughts[m.thought];
-            match mem.iter_mut().find(|(l, _)| *l == td.label) {
+            let label = td.label.replace("{name}", m.about.as_deref().unwrap_or("someone"));
+            match mem.iter_mut().find(|(l, _)| *l == label) {
                 Some(x) => x.1 += td.mood,
-                None => mem.push((td.label.clone(), td.mood)),
+                None => mem.push((label, td.mood)),
             }
         }
         thoughts.extend(mem);
@@ -1077,8 +1107,14 @@ impl Game {
             if let Some(d) = w.get::<PawnDebug>(e) {
                 ui.text_clip(x + 5.0, y0 + ph - 12.0, &format!("fail: {}", d.last_fail.as_deref().unwrap_or("-")), pw - 8.0, theme::DIM);
             }
-        } else if ui.button(x + pw - 60.0, y0 + ph - 16.0, 56.0, 13.0, "Center", false)
-            && let Some(p) = w.get::<Position>(e).map(|p| p.0)
+        } else {
+            self.center_button(ui, e, x, pw, y0, ph);
+        }
+    }
+
+    fn center_button(&mut self, ui: &mut Ui, e: Entity, x: f32, pw: f32, y0: f32, ph: f32) {
+        if ui.button(x + pw - 60.0, y0 + ph - 16.0, 56.0, 13.0, "Center", false)
+            && let Some(p) = self.sim.world.get::<Position>(e).map(|p| p.0)
         {
             self.focus(p);
         }
@@ -1254,6 +1290,7 @@ impl Game {
                 (C::Meal, "Meals", sp.allow_meals),
                 (C::Manufactured, "Manufactured", sp.allow_manufactured),
                 (C::Seed, "Seeds", sp.allow_seeds),
+                (C::Medicine, "Medicine", sp.allow_medicine),
             ];
             let h = 30.0 + 11.0 + cats.len() as f32 * 15.0 + 18.0;
             let mut y = ui.titled_panel(x, 20.0, pw, h, &sp.name);

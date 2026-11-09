@@ -323,6 +323,10 @@ fn kind_to_u8(k: BuildingKind) -> u8 {
         BuildingKind::Workbench => 3,
         BuildingKind::Stairs => 4,
         BuildingKind::Furniture => 5,
+        BuildingKind::Grave => 6,
+        BuildingKind::Table => 7,
+        BuildingKind::Chair => 8,
+        BuildingKind::GameTable => 9,
     }
 }
 
@@ -333,6 +337,10 @@ fn u8_to_kind(v: u8) -> BuildingKind {
         2 => BuildingKind::Bed,
         3 => BuildingKind::Workbench,
         4 => BuildingKind::Stairs,
+        6 => BuildingKind::Grave,
+        7 => BuildingKind::Table,
+        8 => BuildingKind::Chair,
+        9 => BuildingKind::GameTable,
         _ => BuildingKind::Furniture,
     }
 }

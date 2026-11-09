@@ -2,14 +2,18 @@
 
 pub mod ai;
 pub mod components;
+pub mod death;
 pub mod debug;
 pub mod defs;
 pub mod env;
 pub mod farm;
 pub mod geom;
+pub mod hazards;
+pub mod health;
 pub mod items;
 pub mod jobs;
 pub mod map;
+pub mod medical;
 pub mod orders;
 pub mod path;
 pub mod pawn_sys;
@@ -17,6 +21,7 @@ pub mod pawngen;
 pub mod resources;
 pub mod scenario;
 pub mod rng;
+pub mod social;
 pub mod stats;
 pub mod worldgen;
 
@@ -36,7 +41,7 @@ use resources::*;
 use rng::SimRng;
 use stats::StatCache;
 
-const SAVE_MAGIC: &[u8; 8] = b"COLONY04";
+const SAVE_MAGIC: &[u8; 8] = b"COLONY05";
 
 pub struct Sim {
     pub world: World,
@@ -66,6 +71,11 @@ fn register_components(world: &mut World) {
     world.register::<StatCache>();
     world.register::<PawnDebug>();
     world.register::<Appearance>();
+    world.register::<health::Health>();
+    world.register::<social::Social>();
+    world.register::<death::Corpse>();
+    world.register::<death::Grave>();
+    world.register::<medical::CarryingPawn>();
 }
 
 fn save_registry() -> SaveRegistry {
@@ -90,6 +100,11 @@ fn save_registry() -> SaveRegistry {
         .component::<Bed>("bed")
         .component::<StatCache>("stat_cache")
         .component::<Appearance>("appearance")
+        .component::<health::Health>("health")
+        .component::<social::Social>("social")
+        .component::<death::Corpse>("corpse")
+        .component::<death::Grave>("grave")
+        .component::<medical::CarryingPawn>("carrying_pawn")
         .resource::<Map>("map")
         .resource::<Clock>("clock")
         .resource::<SimRng>("rng")
@@ -108,10 +123,14 @@ fn schedule() -> Schedule {
         .add("weather", env::sys_weather)
         .add("env", env::sys_env)
         .add("positions", pawn_sys::sys_positions)
+        .add("corpses", death::sys_corpses)
+        .add("health", health::sys_health)
+        .add("hazards", hazards::sys_hazards)
         .add("stats", pawn_sys::sys_stats)
         .add("needs", pawn_sys::sys_needs)
         .add("mood", pawn_sys::sys_mood)
         .add("breaks", pawn_sys::sys_breaks)
+        .add("social", social::sys_social)
         .add("plants", farm::sys_plants)
         .add("jobs", pawn_sys::sys_jobs);
     s
@@ -129,6 +148,7 @@ impl Sim {
         world.insert_resource(Reservations::default());
         world.insert_resource(GameLog::default());
         world.insert_resource(PawnPositions::default());
+        world.insert_resource(death::CorpsePositions::default());
         world.insert_resource(Pathfinder::default());
         world.insert_resource(Map::new(1, 1, 1));
         world.insert_resource(SimMeta { seed: 0, start: P3::default() });
@@ -157,8 +177,17 @@ impl Sim {
         // Starting colonists: one of each of the first three races.
         let start = generated.start;
         let races: Vec<_> = defs.races.ids().take(3).collect();
+        let mut colonists = Vec::new();
         for (i, r) in races.into_iter().enumerate() {
-            pawngen::generate_pawn(w, r, start.offset(i as i32 - 1, 0, 0));
+            colonists.push(pawngen::generate_pawn(w, r, start.offset(i as i32 - 1, 0, 0)));
+        }
+        // A relative of one of them comes along.
+        if !colonists.is_empty() {
+            let i = w.res_mut::<SimRng>().index(colonists.len());
+            let of = colonists[i];
+            let race = w.get::<Pawn>(of).unwrap().race;
+            let kin = pawngen::generate_pawn(w, race, start.offset(2, 0, 0));
+            social::make_family(w, of, kin);
         }
         // Starting supplies.
         let supplies = [
@@ -171,6 +200,8 @@ impl Sim {
             ("rustwheat_seeds", 16),
             ("threadflax_seeds", 8),
             ("gloomcap_spores", 8),
+            ("mendleaf_seeds", 6),
+            ("herbal_medicine", 6),
         ];
         for (i, (name, n)) in supplies.iter().enumerate() {
             if let Some(d) = defs.items.find(name) {

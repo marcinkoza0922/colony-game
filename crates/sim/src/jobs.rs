@@ -19,6 +19,7 @@ use crate::stats::{self, stat};
 pub const MINE_WORK: f32 = 240.0;
 pub const ROOF_WORK: f32 = 70.0;
 pub const CLEAN_WORK: f32 = 50.0;
+pub const BURY_WORK: f32 = 150.0;
 
 /// Pawn stepped onto `p`: apply foot-traffic contributions (e.g. filth).
 fn foot_traffic(world: &World, p: P3) {
@@ -51,12 +52,24 @@ pub enum JobKind {
     Craft,
     Roof,
     Clean,
+    Tend,
+    Rescue,
+    Feed,
+    Bury,
     Eat,
     Sleep,
+    /// Bed rest as a patient.
+    Rest,
+    /// Lying helpless.
+    Downed,
     Relax,
     Wander,
     MentalBreak,
     Wait,
+    /// Social: talking, eating together, games, visiting a partner.
+    Socialize,
+    /// Social fight (brawl).
+    Fight,
 }
 
 impl JobKind {
@@ -75,6 +88,10 @@ impl JobKind {
                 | JobKind::Craft
                 | JobKind::Roof
                 | JobKind::Clean
+                | JobKind::Tend
+                | JobKind::Rescue
+                | JobKind::Feed
+                | JobKind::Bury
         )
     }
 
@@ -92,6 +109,14 @@ impl JobKind {
             JobKind::Deliver => "Delivering materials",
             JobKind::Build => "Building",
             JobKind::Craft => "Crafting",
+            JobKind::Tend => "Tending",
+            JobKind::Rescue => "Rescuing",
+            JobKind::Feed => "Feeding a patient",
+            JobKind::Bury => "Burying",
+            JobKind::Rest => "Resting in bed",
+            JobKind::Downed => "Downed",
+            JobKind::Socialize => "Socializing",
+            JobKind::Fight => "Fighting",
             JobKind::Eat => "Eating",
             JobKind::Sleep => "Sleeping",
             JobKind::Relax => "Relaxing",
@@ -117,6 +142,10 @@ pub enum WorkTarget {
     /// Build (true) or remove (false) the roof over a cell.
     Roof(P3, bool),
     Clean(P3),
+    /// Tend a patient's wounds and illnesses.
+    Tend(Entity),
+    /// Bury the carried corpse in this grave.
+    Bury(Entity),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -131,6 +160,16 @@ pub enum Toil {
     Eat { ticks: u32 },
     Sleep { bed: Option<Entity> },
     Wait { ticks: u32 },
+    /// Pick up a downed pawn.
+    CarryPawn { pawn: Entity },
+    /// Put the carried pawn down here.
+    PlacePawn { pawn: Entity },
+    /// Feed the carried food to a patient.
+    Feed { patient: Entity },
+    /// Patient bed rest.
+    Rest { bed: Option<Entity> },
+    /// Social activity with another pawn (see `social`).
+    Social(crate::social::SocialToil),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -237,6 +276,7 @@ pub fn finish_job(world: &mut World, pawn: Entity, job: &Job, fail: Option<Strin
     world.res_mut::<Reservations>().release_all(pawn);
     world.remove::<Mover>(pawn);
     world.remove::<CurrentJob>(pawn);
+    world.remove::<crate::medical::CarryingPawn>(pawn);
     let carried = world.get_mut::<Inventory>(pawn).and_then(|mut i| i.carrying.take());
     if let (Some(item), Some(p)) = (carried, pos_of(world, pawn)) {
         items::drop_item(world, item, p);
@@ -501,6 +541,14 @@ fn work_params(world: &World, target: WorkTarget) -> Result<(f32, StatId, Option
             }
             Ok((bd.work.max(1.0), core.stat_construction_speed, Some(core.skill_construction)))
         }
+        WorkTarget::Tend(patient) => crate::medical::tend_params(world, patient),
+        WorkTarget::Bury(grave) => {
+            let g = world.get::<crate::death::Grave>(grave).ok_or("grave gone")?;
+            if g.occupant.is_some() {
+                return Err("grave taken".into());
+            }
+            Ok((BURY_WORK, core.stat_work_speed, None))
+        }
         WorkTarget::Craft { bench, bill } => {
             let wb = world.get::<Workbench>(bench).ok_or("bench gone")?;
             let b = wb.bills.iter().find(|b| b.id == bill).ok_or("bill removed")?;
@@ -522,6 +570,8 @@ fn target_cell(world: &World, t: WorkTarget) -> Option<P3> {
         WorkTarget::Sow(p, _) => Some(p),
         WorkTarget::Chop(e) | WorkTarget::Harvest(e) | WorkTarget::Cut(e) | WorkTarget::Build(e) => pos_of(world, e),
         WorkTarget::Craft { bench, .. } => pos_of(world, bench),
+        WorkTarget::Tend(p) => pos_of(world, p),
+        WorkTarget::Bury(g) => pos_of(world, g),
     }
 }
 
@@ -574,6 +624,12 @@ fn toil_work(world: &mut World, pawn: Entity, job: &mut Job, target: WorkTarget)
     job.progress += speed.max(0.05);
     if let Some(sk) = skill {
         gain_xp(world, pawn, sk, 1.0);
+    }
+    if let Err(e) = crate::hazards::work_accident(world, pawn, target) {
+        return ToilResult::Fail(e);
+    }
+    if !world.has::<Pawn>(pawn) || crate::health::is_downed(world, pawn) {
+        return ToilResult::Fail("hurt".into());
     }
     if job.progress < total {
         return ToilResult::Running;
@@ -686,6 +742,10 @@ fn complete_work(world: &mut World, pawn: Entity, target: WorkTarget) {
             let name = pawn_name(world, pawn);
             log_about(world, LogKind::Info, pawn, format!("{name} built a {}.", defs.buildings[b.def].label));
         }
+        WorkTarget::Tend(patient) => crate::medical::complete_tend(world, pawn, patient),
+        WorkTarget::Bury(grave) => {
+            crate::death::bury(world, pawn, grave);
+        }
         WorkTarget::Craft { bench, bill } => {
             let Some(mut wb) = world.get_cloned::<Workbench>(bench) else { return };
             let Some(bi) = wb.bills.iter().position(|b| b.id == bill) else { return };
@@ -777,6 +837,9 @@ pub fn spawn_building(world: &mut World, def: BuildingId, rot: u8, p: P3) -> Ent
         BuildingKind::Bed => {
             world.insert(e, Bed::default());
         }
+        BuildingKind::Grave => {
+            world.insert(e, crate::death::Grave::default());
+        }
         _ => {}
     }
     world.res_mut::<Map>().set_building(p, Some(e), Some(bd.kind));
@@ -818,6 +881,12 @@ fn toil_eat(world: &mut World, pawn: Entity, job: &mut Job, ticks: u32) -> ToilR
     if let Some(t) = idef.eat_thought {
         crate::pawn_sys::add_memory(world, pawn, t);
     }
+    let at_table = stats::with_ctx(world, pawn, |c| stats::eval(&Condition::AtTable, c)).unwrap_or(false);
+    let table_thought = if at_table { defs.thoughts.find("ate_at_table") } else { defs.core.thought_ate_without_table };
+    if let Some(t) = table_thought {
+        crate::pawn_sys::add_memory(world, pawn, t);
+    }
+    crate::hazards::after_eating(world, pawn, it.def, eaten);
     ToilResult::Next
 }
 
@@ -843,6 +912,7 @@ fn toil_sleep(world: &mut World, pawn: Entity, job: &mut Job, bed: Option<Entity
             if let Some(r) = world.get::<Building>(b).map(|bb| bb.rot) {
                 world.insert(pawn, Facing(r * 2));
             }
+            crate::social::bedtime(world, pawn, b);
         } else {
             crate::pawn_sys::add_memory(world, pawn, defs.core.thought_slept_ground);
         }
@@ -910,6 +980,28 @@ fn step_toil(world: &mut World, pawn: Entity, job: &mut Job) -> ToilResult {
         Toil::Eat { ticks } => toil_eat(world, pawn, job, ticks),
         Toil::Sleep { bed } => toil_sleep(world, pawn, job, bed),
         Toil::Wait { ticks } => toil_wait(world, pawn, job, ticks),
+        Toil::CarryPawn { pawn: p } => res(crate::medical::toil_carry(world, pawn, p)),
+        Toil::PlacePawn { pawn: p } => res(crate::medical::toil_place(world, pawn, p)),
+        Toil::Feed { patient } => res(crate::medical::toil_feed(world, pawn, patient)),
+        Toil::Rest { bed } => {
+            if crate::medical::toil_rest(world, pawn, job, bed) {
+                ToilResult::Next
+            } else {
+                ToilResult::Running
+            }
+        }
+        Toil::Social(t) => match crate::social::step(world, pawn, job, t) {
+            crate::social::Step::Running => ToilResult::Running,
+            crate::social::Step::Done => ToilResult::Next,
+            crate::social::Step::Fail(e) => ToilResult::Fail(e),
+        },
+    }
+}
+
+fn res(r: Result<(), String>) -> ToilResult {
+    match r {
+        Ok(()) => ToilResult::Next,
+        Err(e) => ToilResult::Fail(e),
     }
 }
 

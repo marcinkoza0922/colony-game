@@ -1,5 +1,6 @@
 // Order is the tie-break among equal priorities.
 [
+    (name: "doctor", label: "Doctor", skill: Some("medicine")),
     (name: "mining", label: "Mine", skill: Some("mining")),
     (name: "construction", label: "Build", skill: Some("construction")),
     (name: "plants", label: "Plants", skill: Some("botany")),
